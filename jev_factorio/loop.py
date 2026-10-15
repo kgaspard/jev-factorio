@@ -3,6 +3,7 @@
 Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --seconds 120
       uv run python -m jev_factorio.loop --policy mine --target coal --count 10
       uv run python -m jev_factorio.loop --policy gather --target iron_ore --count 16
+      uv run python -m jev_factorio.loop --policy check_inventory --find stone_furnace,uranium_ore
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -21,11 +22,13 @@ from PIL import Image
 from . import actions, config
 from .actions import Action
 from .capture import Screen
+from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
 from .recorder import Recorder
 from .runlog import RunLog
 from .sequence import SequencePolicy
+from .state import GameState
 from .targets import TARGETS
 from .window import (
     client_rect,
@@ -71,6 +74,9 @@ POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
     "gather": lambda args: SequencePolicy(
         f"gather_{args.target}",
         [WalkPolicy(TARGETS[args.target]), MinePolicy(TARGETS[args.target], args.count)],
+    ),
+    "check_inventory": lambda args: CheckInventoryPolicy(
+        GameState(), args.find.split(",") if args.find else None
     ),
 }
 
@@ -179,6 +185,9 @@ def run(
         if panel:
             time.sleep(1)  # let the panel show the last decision before closing it
             panel.terminate()
+        state = getattr(policy, "state", None)
+        if isinstance(state, GameState):
+            print(state.describe())
         if not policy.done:
             outcome = "stopped"
         else:
@@ -191,6 +200,9 @@ def main():
     parser.add_argument("--policy", choices=POLICIES, default="walk")
     parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="walk/mine target")
     parser.add_argument("--count", type=int, default=10, help="mine/gather: how many to have")
+    parser.add_argument(
+        "--find", help="check_inventory: comma-separated items (default: what the plan needs)"
+    )
     parser.add_argument("--seconds", type=float, default=120)
     parser.add_argument("--tick", type=float, default=config.TICK_SECONDS, help="L in seconds")
     parser.add_argument("--countdown", type=float, default=2)

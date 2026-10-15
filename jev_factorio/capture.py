@@ -91,3 +91,14 @@ def cursor_closeup(frame: Image.Image, x: int, y: int) -> Image.Image:
     left = max(0, min(frame.width - w, x - w // 2))
     top = max(0, y - above)
     return _upscaled(frame, (left, top, left + w, min(frame.height, y + below)), 2)
+
+
+def inventory_panel(frame: Image.Image) -> Image.Image:
+    """Where the "Character" inventory panel sits when open, upscaled 2x."""
+    return _upscaled(frame, config.INVENTORY_PANEL, 2)
+
+
+def slot_closeup(frame: Image.Image, x: int, y: int) -> Image.Image:
+    """A hovered inventory slot at (x, y): its icon and count, and the tooltip that opens to
+    its lower right, upscaled 3x."""
+    return _upscaled(frame, (x - 22, y - 22, x + 238, y + 98), 3)

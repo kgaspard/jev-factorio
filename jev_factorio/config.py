@@ -66,3 +66,16 @@ JEV_MODEL = "jev-1.14.0"  # Box needs 1.14 (alias: jev-preview)
 JEV_HEADERS = {"TypeSafe-Danger-Zone-Images": "true"}
 JEV_MAX_IMAGE_SIDE = 1568  # API rejects images with a side > 1568 px
 JEV_PRICE_PER_INPUT_TOKEN = 0.042 / 1_000_000  # USD; output tokens are free
+
+# ---- Inventory check ----
+# Measured at 1920x1080 with default UI scale: the "Character" panel when the inventory is
+# open, and the centre of its first slot. Slots are 40 px apart, 10 per row.
+INVENTORY_PANEL = (520, 280, 955, 705)
+INVENTORY_SLOT0 = (562, 382)
+INVENTORY_SLOT_PITCH = 40
+INVENTORY_COLUMNS = 10
+INVENTORY_SLOTS = 80
+INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it (O33)
+OPEN_MIN = 0.7  # "inventory open" needed to start reading
+INVENTORY_RETRIES = 3  # failed opens/closes before giving up
+TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, absent <= 0.03

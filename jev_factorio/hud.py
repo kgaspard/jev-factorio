@@ -97,7 +97,9 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     source = decision.get("source", "")
     draw.text((PAD, y + 80), f"[{source}] {decision.get('reason', '')}", fill=DIM, font=font(16))
 
-    if "minimap" in jev:
+    if record.get("objective") == "check_inventory":
+        _inventory_section(img, draw, record, run_dir)
+    elif "minimap" in jev:
         _walk_section(img, draw, record, run_dir, name)
     else:
         _mine_section(img, draw, record, run_dir, name)
@@ -260,3 +262,47 @@ def _mine_section(img, draw, record: dict, run_dir: Path, name: str):
         draw.text((x, y + 200), "Jev reads N:", fill=DIM, font=font(15))
         for i, (label, p) in enumerate(top):
             draw.text((x, y + 222 + i * 22), f"{label:>5}  {p:.2f}", fill=TEXT, font=font(16))
+
+
+def _inventory_section(img, draw, record: dict, run_dir: Path):
+    w = config.PANEL_SIZE[0]
+    jev, shots = record["jev"], record.get("images", {})
+    wanted = record.get("looking_for") or ""
+    wanted_name = wanted.replace("_", " ")
+
+    # ---- What Jev is looking at this tick ----
+    y = 228
+    _card(draw, y, y + 340, f"WHAT JEV SEES  ({record.get('phase', '')})")
+    if "slot" in shots:
+        _paste_image(img, run_dir, shots["slot"], (PAD, y + 38), (w - 2 * PAD, 277))
+    elif "inventory" in shots:
+        box = jev["locate"]["answers"]["box"] if "locate" in jev else None
+        label = f"{wanted_name} {box['confidence'] or 0:.2f}" if box else ""
+        _paste_image(img, run_dir, shots["inventory"], (PAD + 140, y + 38), (300, 293),
+                     box["box"] if box else None, label)  # fmt: skip
+    else:
+        draw.text((PAD, y + 50), "pressing E, nothing to read", fill=DIM, font=font(16))
+
+    # ---- Signals and what has been found so far ----
+    y = 576
+    _card(draw, y, y + 330, f"INVENTORY  looking for: {wanted_name}")
+    signals: list[tuple[str, float]] = []
+    if "open" in jev:
+        signals.append(("inventory open", jev["open"]["answers"]["open"]["p"]))
+    if "locate" in jev:
+        a = jev["locate"]["answers"]
+        signals += [("is it there? (Noul)", a["there"]["p"]),
+                    ("slot box conf", a["box"]["confidence"] or 0)]  # fmt: skip
+    if "slot" in jev:
+        a = jev["slot"]["answers"]
+        signals += [
+            (f"tooltip says {wanted_name}", a["item"]["probs"].get(wanted, 0.0)),
+            (f"tooltip: {a['item']['choice']}", a["item"]["confidence"] or 0),
+            (f"count: {a['count']['choice']}", a["count"]["confidence"] or 0),
+        ]
+    _signal_rows(draw, PAD, y + 40, 330, signals)
+    x = PAD + 360
+    draw.text((x, y + 40), "FOUND", fill=DIM, font=font(16, bold=True))
+    for i, (item, n) in enumerate(record.get("items", {}).items()):
+        text = f"{n:>3}  {item.replace('_', ' ')}" if n else f" no  {item.replace('_', ' ')}"
+        draw.text((x, y + 66 + i * 26), text, fill=TEXT if n else DIM, font=font(16))

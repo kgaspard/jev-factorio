@@ -12,6 +12,7 @@ from typesafe_sdk import Noul
 from . import config
 from .geometry import turn
 from .jev import make_client
+from .state import ICONS, ITEM_NAMES
 from .targets import GROUND_LEGEND, MINIMAP_LEGEND, Target
 
 DIRECTIONS = ["up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"]
@@ -195,6 +196,71 @@ def mining_requests(bar: Image.Image, text: Image.Image, max_count: int) -> dict
                     instructions="What number is in brackets in the floating text?",
                     criteria=count_options(max_count),
                 ),
+            },
+        ),
+    }
+
+
+# ---- Inventory check. Item names come from hover tooltips, not icons (O33). ----
+INVENTORY_CONTEXT = (
+    "This is the middle of the game screen. When the character inventory is open, a window "
+    "titled 'Character' shows here with a grid of item slots."
+)
+SLOT_CONTEXT = (
+    "This is a close-up of the open character inventory. The mouse cursor hovers over the "
+    "inventory slot at the top-left of the image. If the slot holds an item, its icon shows "
+    "the number of that item in its bottom-right corner, and a tooltip with the item's name "
+    "in its title bar appears next to it."
+)
+SLOT_TITLES = {k: v[0].upper() + v[1:] for k, v in ITEM_NAMES.items()}
+
+
+INVENTORY_BOX_CONTEXT = (
+    "This is the open character inventory: a grid of item slots, 10 per row. Each slot shows "
+    "an item's icon with the number of that item in the bottom-right corner. Item icons: "
+    + "; ".join(f"{ITEM_NAMES[k]} is {d}" for k, d in ICONS.items())
+    + "."
+)
+
+
+def inventory_box_request(panel: Image.Image, item: str) -> tuple[list, dict]:
+    """Where is `item`? Paired with a Noul for the panel, but neither is trusted for absence:
+    the hovered tooltip decides (O36, O38)."""
+    name = ITEM_NAMES[item]
+    return [GAME_CONTEXT, INVENTORY_BOX_CONTEXT, JevImage.from_pil(panel)], {
+        "there": Noul(instructions=f"Is there {name} in the inventory?"),
+        "box": Box(instructions=f"The inventory slot holding {name}"),
+    }
+
+
+def inventory_open_request(panel: Image.Image) -> tuple[list, dict]:
+    return [GAME_CONTEXT, INVENTORY_CONTEXT, JevImage.from_pil(panel)], {
+        "open": Noul(instructions="Is the character inventory window open?"),
+    }
+
+
+def slot_request(slot: Image.Image, extra: list[str] | None = None) -> tuple[list, dict]:
+    """Tooltip title as a Choice over all item names, so 'Stone' can't match 'Stone furnace'
+    (a yes/no "does it say 'Stone'?" scored 0.60 on a stone furnace, O36)."""
+    titles = dict(SLOT_TITLES)
+    for k in extra or []:
+        titles.setdefault(k, ITEM_NAMES[k].capitalize())
+    return [GAME_CONTEXT, SLOT_CONTEXT, JevImage.from_pil(slot)], {
+        "slot_empty": Noul(instructions="Is the hovered slot empty (no item icon)?"),
+        "item": Choice(
+            instructions="What name is in the tooltip's title bar?",
+            criteria={
+                **{k: f"'{v}'" for k, v in titles.items()},
+                "other": "Another name",
+                "none": "No tooltip",
+            },
+        ),
+        "count": Choice(
+            instructions="What number is on the hovered slot's icon?",
+            criteria={
+                **{str(n): None for n in range(1, 101)},
+                "more": "More than 100",
+                "none": "No item in the slot",
             },
         ),
     }
