@@ -4,15 +4,23 @@ drill on ore, then a stone furnace at the drill's output.
 
 open, verify_open:     press E until Jev says the inventory is open.
 locate, confirm:       Jev boxes the building's slot; its tooltip must name it (or the
-                       neighbouring slot's, as in the inventory check).
+                       neighbouring slot's, as in the inventory check). Neither: the other
+                       slots that hold something, until one does (Jev's box on a furnace is
+                       unsure, 0.07-0.22, and once spanned the whole row).
 pick:                  left-click the slot: the building goes onto the cursor.
 close, verify_closed:  press E until the inventory is closed.
 spot:                  the cursor hovers a spot a few tiles from the player. Factorio draws the
                        building there, green if it fits and red if not; Jev says which.
                        A drill also has to stand on its ore. Green: left-click. Otherwise the
-                       next spot.
+                       next spot. Without an ore to check, the close-up is just the preview:
+                       a building next to it can carry a red warning icon.
 verify_placed:         the cursor is now over the placed building, so Factorio's info panel
                        should say its name (and, for a drill, its ore: logged).
+clear:                 the cursor moves off, then Q: with more than one in the stack the rest
+                       stay on the cursor, and while they do hovering shows a preview instead
+                       of the info panel and clicks can't open a window. Q only once the
+                       cursor is off the building: with an empty hand, Q over a building
+                       picks one from the inventory.
 """
 
 from collections.abc import Callable, Sequence
@@ -29,8 +37,8 @@ from .brain import (
     preview_request,
     slot_request,
 )
-from .capture import cursor_closeup, info_panel, inventory_panel, slot_closeup
-from .inventory import NEUTRAL, slot_at, slot_centre
+from .capture import cursor_closeup, info_panel, inventory_panel, preview_closeup, slot_closeup
+from .inventory import NEUTRAL, occupied_slots, slot_at, slot_centre, tooltip_missing
 from .state import ITEM_NAMES, Building, GameState
 from .targets import TARGETS
 
@@ -60,6 +68,8 @@ class PlacePolicy:
         self.slot: int | None = None
         self.neighbour: int | None = None
         self.tried_neighbour = False
+        self.others: list[int] = []  # other filled slots to try if the boxed ones miss
+        self.tooltip_waits: dict[int, int] = {}  # per slot: looks again for its tooltip
         self.spot = 0  # index into self.spots
         self.retries = 0
         self.total_cost = 0.0
@@ -102,7 +112,10 @@ class PlacePolicy:
             jobs["slot"] = slot_request(images["slot"])
         elif phase == "spot":
             x, y = self._spot_px(frame)
-            images["cursor"] = cursor_closeup(frame, round(x), round(y) + 60)
+            if self.ore is None:
+                images["cursor"] = preview_closeup(frame, round(x), round(y))
+            else:
+                images["cursor"] = cursor_closeup(frame, round(x), round(y) + 60)
             jobs["preview"] = preview_request(images["cursor"], self.ore)
         elif phase == "verify_placed":
             images["panel"] = info_panel(frame)
@@ -139,6 +152,7 @@ class PlacePolicy:
         a = look["locate"]["answers"]
         slot, self.neighbour = slot_at(a["box"]["box"])
         self.tried_neighbour = False
+        self.others = [s for s in occupied_slots(frame) if s not in (slot, self.neighbour)]
         if slot is None:
             return self._fail(f"{self.item} box off the grid")
         self.slot, self.phase = slot, "confirm"
@@ -150,6 +164,11 @@ class PlacePolicy:
         )
 
     def _confirm(self, look, frame):
+        assert self.slot is not None
+        waits = self.tooltip_waits.get(self.slot, 0)
+        if waits < config.TOOLTIP_WAITS and tooltip_missing(frame, self.slot):
+            self.tooltip_waits[self.slot] = waits + 1
+            return actions.wait(0), "no tooltip", f"slot {self.slot}: no tooltip yet; look again"
         item = look["slot"]["answers"]["item"]
         p = item["probs"].get(self.item, 0.0)
         if p >= config.TOOLTIP_SAYS_MIN:
@@ -173,6 +192,13 @@ class PlacePolicy:
                 self._to(f"hover_slot_{self.slot}", slot_centre(self.slot), frame),
                 "neighbour",
                 f"{why}; try slot {self.slot}",
+            )
+        if self.others:
+            self.slot = self.others.pop(0)
+            return (
+                self._to(f"hover_slot_{self.slot}", slot_centre(self.slot), frame),
+                "other slot",
+                f"{why}; try slot {self.slot} (holds something)",
             )
         if self.state.inventory is not None:
             self.state.inventory[self.item] = 0
@@ -247,13 +273,17 @@ class PlacePolicy:
             if r and self.ore and r["choice"] != self.ore.key:
                 # Factorio's own word on what the drill will mine: not the ore it was for.
                 return self._fail(f"drill placed but{ore}, not {self.ore.name}")
-            self.done = self.success = True
+            self.phase = "clear"
             return (
                 self._to("hover_off", NEUTRAL, frame),
                 "placed",
                 f"panel says {self.title} ({p:.2f}){ore} at {dx:+g},{dy:+g}",
             )
         return self._retry(f"panel doesn't say {self.title} ({p:.2f})", actions.wait(0))
+
+    def _clear(self, look, frame):
+        self.done = self.success = True
+        return self._tap("clear_cursor", "q"), "clear", "Q: any more of them go back"
 
     # ---- shared ----
     def _retry(self, why: str, action: Action):

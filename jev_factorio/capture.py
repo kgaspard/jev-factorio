@@ -105,6 +105,14 @@ def cursor_closeup(frame: Image.Image, x: int, y: int) -> Image.Image:
     return _upscaled(frame, (left, top, left + w, min(frame.height, y + below)), 2)
 
 
+def preview_closeup(frame: Image.Image, x: int, y: int) -> Image.Image:
+    """Just the building preview at (x, y), 2x. In the wider cursor close-up a green furnace
+    preview at a drill's output read red (0.07): the drill's red no-fuel triangle was in it."""
+    h = config.PREVIEW_CROP_HALF
+    left, top = max(0, min(frame.width - 2 * h, x - h)), max(0, min(frame.height - 2 * h, y - h))
+    return _upscaled(frame, (left, top, left + 2 * h, top + 2 * h), 2)
+
+
 def inventory_panel(frame: Image.Image) -> Image.Image:
     """Where the "Character" inventory panel sits when open, upscaled 2x."""
     return _upscaled(frame, config.INVENTORY_PANEL, 2)

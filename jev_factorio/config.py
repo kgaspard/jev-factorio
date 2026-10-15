@@ -84,6 +84,11 @@ INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it
 OPEN_MIN = 0.7  # "inventory open" needed to start reading
 INVENTORY_RETRIES = 3  # failed opens/closes before giving up
 OBJECTIVE_RETRIES = 1  # times a failed objective goes back to the planner before the run stops
+SLOT_OCCUPIED_STD = 20  # pixel spread in a slot's middle: empty ~1.3, an item 36-66
+# Cream title bar share of a slot close-up: with a tooltip >= 0.126, without <= 0.025.
+TOOLTIP_CREAM_MIN = 0.05
+TOOLTIP_WAITS = 2  # looks again at a filled slot that shows no tooltip yet
+PREVIEW_CROP_HALF = 80  # game px each side of the spot in a building preview close-up
 SLOT_CANDIDATES = 3  # slots under a box whose tooltips get checked, nearest first
 TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, absent <= 0.03
 

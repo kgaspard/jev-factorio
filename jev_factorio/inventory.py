@@ -15,6 +15,7 @@ same confidence as real items), but the tooltip can.
 
 from dataclasses import dataclass
 
+import numpy as np
 from PIL import Image
 
 from . import actions, config
@@ -59,6 +60,31 @@ def slot_at(box: list[float]) -> tuple[int | None, int | None]:
     if not 0 <= ncol < config.INVENTORY_COLUMNS:
         ncol = col - side
     return row * config.INVENTORY_COLUMNS + col, row * config.INVENTORY_COLUMNS + ncol
+
+
+def slot_filled(frame: Image.Image, i: int) -> bool:
+    """Whether inventory slot i holds an item, from the pixels alone (no Jev): an empty slot's
+    middle is flat grey."""
+    x, y = slot_centre(i)
+    grey = np.asarray(frame.crop((x - 14, y - 14, x + 14, y + 14)).convert("L"), np.float32)
+    return bool(grey.std() > config.SLOT_OCCUPIED_STD)
+
+
+def occupied_slots(frame: Image.Image) -> list[int]:
+    return [i for i in range(config.INVENTORY_SLOTS) if slot_filled(frame, i)]
+
+
+def tooltip_missing(frame: Image.Image, i: int) -> bool:
+    """Slot i holds an item but shows no tooltip (yet): Jev's read would be a guess from the
+    icon (a stone furnace read as a burner mining drill, 0.54, so "no stone furnace"). A
+    tooltip's title bar is cream; the area is the slot close-up's."""
+    if not slot_filled(frame, i):
+        return False
+    x, y = slot_centre(i)
+    a = np.asarray(frame.crop((x - 22, y - 22, x + 238, y + 98)).convert("RGB"), np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    cream = (r > 200) & (g > 185) & (b > 140) & (r - b > 25)
+    return bool(cream.mean() < config.TOOLTIP_CREAM_MIN)
 
 
 @dataclass(frozen=True)
@@ -123,6 +149,7 @@ class CheckInventoryPolicy:
         self.tried_neighbour = False
         self.found: dict[str, int] = {}  # wanted items: count, 0 = not there
         self.seen: dict[str, int] = {}  # other items read on the way
+        self.tooltip_waits: dict[int, int] = {}  # per slot: looks again for its tooltip
         self.retries = 0
         self.total_cost = 0.0
         self.done = False
@@ -208,6 +235,11 @@ class CheckInventoryPolicy:
         )
 
     def _confirm(self, a: dict, frame: Image.Image):
+        assert self.slot is not None
+        waits = self.tooltip_waits.get(self.slot, 0)
+        if waits < config.TOOLTIP_WAITS and tooltip_missing(frame, self.slot):
+            self.tooltip_waits[self.slot] = waits + 1
+            return actions.wait(0), "no tooltip", f"slot {self.slot}: no tooltip yet; look again"
         item = a["item"]
         p = item["probs"].get(self.item, 0.0)
         count = a["count"]["choice"]

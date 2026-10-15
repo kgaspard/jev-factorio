@@ -89,6 +89,10 @@ def coal_needed(state: GameState) -> int:
     return config.FUEL_COUNT if sites_running(state) else 45
 
 
+# Recipes locked until another item has been crafted once (its research triggers on that).
+UNLOCKED_BY = {"automation_science_pack": "lab"}
+
+
 def red_science_todo(state: GameState) -> list[tuple[str, int]]:
     packs = 10 - _held(state, "automation_science_pack")
     todo = [] if _held(state, "lab") else [("lab", 1)]
@@ -383,6 +387,9 @@ def available(state: GameState, goal: Goal) -> dict[str, str]:
         if objective in goal.craft:
             item, count = goal.craft[objective]
             n = goal.count(count, state)  # 0: none needed (a drill would eat a site's furnace)
+            key = UNLOCKED_BY.get(item)
+            if key and f"craft_{key}" not in state.completed and not have.get(key):
+                return False  # with the ingredients but no lab it tried the packs: locked
             return state.inventory is not None and n > 0 and not missing_for(item, n, have)
         if objective == "place_stone_furnace":
             # With drill sites, a held furnace is for a site (or a drill), unless there is no
