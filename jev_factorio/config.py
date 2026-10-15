@@ -79,3 +79,9 @@ INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it (O33)
 OPEN_MIN = 0.7  # "inventory open" needed to start reading
 INVENTORY_RETRIES = 3  # failed opens/closes before giving up
 TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, absent <= 0.03
+
+# ---- Placing the furnace (CP4) ----
+# Spots tried for the furnace, in tiles from the player (x right, y down), first fitting one
+# wins. 3 tiles keeps the 2x2 furnace clear of the character.
+PLACE_SPOTS = [(3, 0), (-3, 0), (0, 3), (3, 3), (-3, 3)]
+PREVIEW_GREEN_MIN = 0.8  # green preview needed to click; red and empty cursors read <= 0.02

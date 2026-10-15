@@ -161,6 +161,36 @@ def corners_request(cursor: Image.Image) -> tuple[list, dict]:
     }
 
 
+def panel_says_request(panel: Image.Image, title: str) -> tuple[list, dict]:
+    """Does the hovered-entity info panel's title say `title`?"""
+    return [GAME_CONTEXT, PANEL_CONTEXT, JevImage.from_pil(panel)], {
+        "says": Noul(instructions=f"Does the info panel's title say '{title}'?"),
+    }
+
+
+PREVIEW_CONTEXT = (
+    "This is a close-up around the mouse cursor. While the player holds a building on the "
+    "cursor, a preview of it is drawn there: green if it can be placed, red if something is "
+    "in the way."
+)
+
+
+def preview_request(cursor: Image.Image) -> tuple[list, dict]:
+    """Factorio's own placement check. "corners_only" keeps red out-of-reach selection
+    corners from reading as a red building (O41)."""
+    return [GAME_CONTEXT, PREVIEW_CONTEXT, JevImage.from_pil(cursor)], {
+        "preview": Choice(
+            instructions="What colour is the building preview at the cursor?",
+            criteria={
+                "green": "Green: can be placed",
+                "red": "Red: blocked",
+                "corners_only": "Only four small corner brackets around a tile, no building",
+                "none": "No building preview at the cursor",
+            },
+        ),
+    }
+
+
 def count_options(max_count: int) -> dict[str, str | None]:
     return {
         **{str(n): None for n in range(1, max_count + 1)},

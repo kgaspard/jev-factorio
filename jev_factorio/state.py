@@ -33,6 +33,7 @@ ICONS = {
 class Furnace:
     """A placed stone furnace and what was put into it or taken out."""
 
+    at: tuple[float, float] = (0.0, 0.0)  # tiles from the player when it was placed
     fuel: int = 0  # coal put in
     ore: int = 0  # iron ore put in and not smelted yet
     plates_ready: int = 0  # smelted, waiting in the output slot

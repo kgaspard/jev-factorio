@@ -1,12 +1,14 @@
 """The Jev decision panel, drawn as a PIL image from one decisions.jsonl record.
 Used by the live view now and by the video renderer later, so both look the same."""
 
+import textwrap
 from functools import cache, lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from . import config
+from .planner import OBJECTIVES
 
 BG = (14, 16, 20)
 CARD = (25, 28, 34)
@@ -95,9 +97,15 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     colour = GOOD if decision.get("source") in ("arrived", "done") else TEXT
     draw.text((PAD, y + 32), action.upper(), fill=colour, font=font(34, bold=True))
     source = decision.get("source", "")
-    draw.text((PAD, y + 80), f"[{source}] {decision.get('reason', '')}", fill=DIM, font=font(16))
+    reason = textwrap.wrap(f"[{source}] {decision.get('reason', '')}", 64)
+    for i, line in enumerate(reason[:2]):
+        draw.text((PAD, y + 74 + i * 20), line, fill=DIM, font=font(15))
 
-    if record.get("objective") == "check_inventory":
+    if record.get("objective") == "plan":
+        _plan_section(img, draw, record)
+    elif record.get("objective") == "place_furnace":
+        _generic_section(img, draw, record, run_dir)
+    elif record.get("objective") == "check_inventory":
         _inventory_section(img, draw, record, run_dir)
     elif "minimap" in jev:
         _walk_section(img, draw, record, run_dir, name)
@@ -306,3 +314,67 @@ def _inventory_section(img, draw, record: dict, run_dir: Path):
     for i, (item, n) in enumerate(record.get("items", {}).items()):
         text = f"{n:>3}  {item.replace('_', ' ')}" if n else f" no  {item.replace('_', ' ')}"
         draw.text((x, y + 66 + i * 26), text, fill=TEXT if n else DIM, font=font(16))
+
+
+def _plan_section(img, draw, record: dict):
+    w = config.PANEL_SIZE[0]
+    choice = record["jev"]["plan"]["answers"]["next_objective"]
+
+    # ---- The state Jev reads (text only, no image) ----
+    y = 228
+    _card(draw, y, y + 340, "WHAT JEV KNOWS  (text, no image)")
+    lines = []
+    for sentence in record.get("state_text", "").split(". "):
+        lines += textwrap.wrap(sentence.rstrip(".") + ".", 56)
+    for i, line in enumerate(lines[:12]):
+        draw.text((PAD, y + 40 + i * 24), line, fill=TEXT, font=font(16))
+
+    # ---- The next_objective choice ----
+    y = 576
+    _card(draw, y, y + 330, "NEXT OBJECTIVE?")
+    ry = y + 38
+    for label in OBJECTIVES:
+        p = choice["probs"].get(label, 0.0)
+        chosen = label == choice["choice"]
+        draw.text((PAD, ry), label, fill=ACCENT if chosen else TEXT, font=font(15, bold=chosen))
+        _bar(draw, PAD + 175, ry + 3, 340, 12, p, ACCENT if chosen else DIM)
+        draw.text((w - PAD - 4, ry), f"{p:.2f}", fill=TEXT, font=font(15), anchor="ra")
+        ry += 26
+
+
+def _generic_section(img, draw, record: dict, run_dir: Path):
+    """Any objective: the image Jev looked at this tick, and every answer as a bar."""
+    w = config.PANEL_SIZE[0]
+    jev, shots = record["jev"], record.get("images", {})
+
+    y = 228
+    _card(draw, y, y + 340, f"WHAT JEV SEES  ({record.get('phase', '')})")
+    for name, size, xy in [
+        ("slot", (w - 2 * PAD, 277), (PAD, y + 38)),
+        ("cursor", (450, 290), (PAD + 75, y + 38)),
+        ("panel", (230, 290), (PAD + 185, y + 38)),
+        ("inventory", (300, 293), (PAD + 140, y + 38)),
+    ]:
+        if name in shots:
+            box = None
+            if name == "inventory" and "locate" in jev:
+                box = jev["locate"]["answers"]["box"]["box"]
+            _paste_image(img, run_dir, shots[name], xy, size, box)
+            break
+    else:
+        draw.text((PAD, y + 50), "acting, nothing to read", fill=DIM, font=font(16))
+
+    y = 576
+    _card(draw, y, y + 330, record.get("objective", "").upper().replace("_", " "))
+    signals: list[tuple[str, float]] = []
+    for job, result in jev.items():
+        if not isinstance(result, dict) or "answers" not in result:
+            continue
+        for key, a in result["answers"].items():
+            if a["type"] == "noul":
+                signals.append((f"{job}: {key}", a["p"]))
+            elif a["type"] == "choice":
+                signals.append((f"{job}: {a['choice']}", a["confidence"] or 0))
+            else:
+                signals.append((f"{job}: box conf", a["confidence"] or 0))
+    _signal_rows(draw, PAD, y + 40, w - 2 * PAD - 10, signals[:6])

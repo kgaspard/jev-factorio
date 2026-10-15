@@ -4,6 +4,7 @@ Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --secon
       uv run python -m jev_factorio.loop --policy mine --target coal --count 10
       uv run python -m jev_factorio.loop --policy gather --target iron_ore --count 16
       uv run python -m jev_factorio.loop --policy check_inventory --find stone_furnace,uranium_ore
+      uv run python -m jev_factorio.loop --policy play --seconds 300
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -25,6 +26,8 @@ from .capture import Screen
 from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
+from .place import PlaceFurnacePolicy
+from .play import PlayPolicy
 from .recorder import Recorder
 from .runlog import RunLog
 from .sequence import SequencePolicy
@@ -75,6 +78,8 @@ POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
         f"gather_{args.target}",
         [WalkPolicy(TARGETS[args.target]), MinePolicy(TARGETS[args.target], args.count)],
     ),
+    "play": lambda args: PlayPolicy(GameState()),
+    "place_furnace": lambda args: PlaceFurnacePolicy(GameState()),
     "check_inventory": lambda args: CheckInventoryPolicy(
         GameState(), args.find.split(",") if args.find else None
     ),
@@ -191,7 +196,9 @@ def run(
         if not policy.done:
             outcome = "stopped"
         else:
-            outcome = "policy finished" if getattr(policy, "success", True) else "policy gave up"
+            outcome = getattr(policy, "outcome", None) or (
+                "policy finished" if getattr(policy, "success", True) else "policy gave up"
+            )
         print(f"{outcome} after {tick} ticks. Run saved to {log.dir}")
 
 

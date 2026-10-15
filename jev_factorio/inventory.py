@@ -187,7 +187,11 @@ class CheckInventoryPolicy:
     def _verify_closed(self, p: float):
         if p < 1 - config.OPEN_MIN:
             self.done = self.success = True
-            return actions.wait(0), "done", "inventory closed; " + self.state.describe_inventory()
+            return (
+                actions.wait(0),
+                "done",
+                "inventory closed; " + self.state.describe_inventory().rstrip("."),
+            )
         return self._retry(f"inventory still open ({p:.2f})", self._tap_e("close_inventory"))
 
     def _retry(self, why: str, action: Action):
