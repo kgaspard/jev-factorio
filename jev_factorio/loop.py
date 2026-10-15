@@ -1,6 +1,7 @@
 """Main loop: screenshot -> policy decides -> execute -> sleep so each tick lasts >= L.
 
 Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --seconds 120
+      uv run python -m jev_factorio.loop --policy mine --target coal --count 10
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -19,6 +20,7 @@ from PIL import Image
 from . import actions, config
 from .actions import Action
 from .capture import Screen
+from .mine import MinePolicy
 from .navigate import WalkPolicy
 from .recorder import Recorder
 from .runlog import RunLog
@@ -63,6 +65,7 @@ class RandomPolicy:
 POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
     "random": lambda args: RandomPolicy(),
     "walk": lambda args: WalkPolicy(TARGETS[args.target]),
+    "mine": lambda args: MinePolicy(TARGETS[args.target], args.count),
 }
 
 
@@ -108,6 +111,9 @@ def run(
             if not factorio_is_active():
                 if paused_since is None:
                     paused_since = time.time()
+                    actions.release_all()  # don't keep a button held on another window
+                    if hasattr(policy, "paused"):
+                        policy.paused()
                     print(f"PAUSED: Factorio lost focus to {foreground_owner()}. Click into it.")
                 time.sleep(0.2)
                 continue
@@ -174,13 +180,14 @@ def run(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", choices=POLICIES, default="walk")
-    parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="for --policy walk")
+    parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="walk/mine target")
+    parser.add_argument("--count", type=int, default=10, help="for --policy mine: how many")
     parser.add_argument("--seconds", type=float, default=120)
     parser.add_argument("--tick", type=float, default=config.TICK_SECONDS, help="L in seconds")
     parser.add_argument("--countdown", type=float, default=2)
     parser.add_argument("--no-extras", action="store_true", help="no live panel, no recording")
     args = parser.parse_args()
-    tag = f"walk-{args.target}" if args.policy == "walk" else args.policy
+    tag = f"{args.policy}-{args.target}" if args.policy in ("walk", "mine") else args.policy
     policy = POLICIES[args.policy](args)
     run(policy, tag, args.seconds, args.tick, args.countdown, not args.no_extras)
 

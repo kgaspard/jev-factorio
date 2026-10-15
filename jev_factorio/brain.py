@@ -97,6 +97,109 @@ def detour_request(
     return [GAME_CONTEXT, CLOSEUP_CONTEXT, situation, JevImage.from_pil(closeup)], questions
 
 
+# ---- Mining (CP3). These read Factorio's own text and bar, not rock colours (O28). ----
+AIM_CONTEXT = (
+    "This is a close-up of the area around the player's character, who is at the centre. "
+    + GROUND_LEGEND
+)
+PANEL_CONTEXT = (
+    "This is the right-hand side panel of the game's interface. When the mouse cursor hovers "
+    "over something in the world, an info panel appears here with its name in the title bar."
+)
+BAR_CONTEXT = (
+    "This is a strip of the game's interface just above the quickbar. While the player mines "
+    "by hand, an orange progress bar appears here and fills up as each item is mined."
+)
+TEXT_CONTEXT = (
+    "This is a close-up around the mouse cursor while the player mines by hand. Each time an "
+    "item is mined, a floating text like '+1 Coal (5)' rises from the cursor; the number in "
+    "brackets is how many the player now has in total."
+)
+CORNERS_CONTEXT = (
+    "This is a close-up around the mouse cursor. When the cursor hovers over something, four "
+    "corner brackets are drawn around it: yellow if the player can reach it, red if it is too "
+    "far away."
+)
+ITEM_TITLES = {"coal": "Coal", "iron_ore": "Iron ore", "copper_ore": "Copper ore", "stone": "Stone"}
+
+
+def aim_request(closeup: Image.Image, target: Target) -> tuple[list, dict]:
+    """Which side of the character to mine on. A box on "the nearest rock" landed on the
+    character itself whatever the wording, so ask for a side and let the info panel confirm."""
+    return [GAME_CONTEXT, AIM_CONTEXT, JevImage.from_pil(closeup)], {
+        "side": Choice(
+            instructions="In which direction from the player's character, within about two "
+            f"tiles, is there {target.name}?",
+            criteria={
+                **{d: None for d in DIRECTIONS},
+                "none": f"No {target.name} within about two tiles",
+            },
+        ),
+    }
+
+
+def panel_request(panel: Image.Image, target: Target) -> tuple[list, dict]:
+    title = ITEM_TITLES[target.key]
+    return [GAME_CONTEXT, PANEL_CONTEXT, JevImage.from_pil(panel)], {
+        "panel_shown": Noul(instructions="Is an info panel for a hovered object shown?"),
+        "says_target": Noul(instructions=f"Does the info panel's title say '{title}'?"),
+    }
+
+
+def corners_request(cursor: Image.Image) -> tuple[list, dict]:
+    """Factorio's own reach check: the selection corners are red when it is too far."""
+    return [GAME_CONTEXT, CORNERS_CONTEXT, JevImage.from_pil(cursor)], {
+        "corners": Choice(
+            instructions="What colour are the four corner brackets around the hovered object?",
+            criteria={
+                "yellow": "Yellow: in reach",
+                "red": "Red: out of reach",
+                "none": "No corner brackets",
+            },
+        ),
+    }
+
+
+def count_options(max_count: int) -> dict[str, str | None]:
+    return {
+        **{str(n): None for n in range(1, max_count + 1)},
+        "more": f"A number larger than {max_count}",
+        "none": "No floating text",
+    }
+
+
+def mining_requests(bar: Image.Image, text: Image.Image, max_count: int) -> dict:
+    return {
+        "bar": (
+            [GAME_CONTEXT, BAR_CONTEXT, JevImage.from_pil(bar)],
+            {
+                "mining": Noul(
+                    instructions="Is an orange progress bar shown, at least partly filled?"
+                )
+            },
+        ),
+        "text": (
+            [GAME_CONTEXT, TEXT_CONTEXT, JevImage.from_pil(text)],
+            {
+                "text_shown": Noul(
+                    instructions="Is a floating '+1 <item> (<number>)' text visible?"
+                ),
+                "item": Choice(
+                    instructions="Which item does the floating text name?",
+                    criteria={
+                        **{k: f"'{v}'" for k, v in ITEM_TITLES.items()},
+                        "none": "No floating text",
+                    },
+                ),
+                "count": Choice(
+                    instructions="What number is in brackets in the floating text?",
+                    criteria=count_options(max_count),
+                ),
+            },
+        ),
+    }
+
+
 def _plain(answer) -> dict:
     if answer.type == "noul":
         return {"type": "noul", "p": answer.noul}
@@ -155,6 +258,11 @@ class Brain:
         }
         if detour:
             jobs["detour"] = detour
+        return self.ask(jobs)
+
+    def ask(self, jobs: dict[str, tuple[list, dict]]) -> dict:
+        """Send several (state, questions) requests at the same time. Returns each one's
+        result by name, plus the total "tokens" and "cost_usd"."""
         futures = {name: self._pool.submit(self._ask, *job) for name, job in jobs.items()}
         result = {name: f.result() for name, f in futures.items()}
         tokens = sum(r["tokens"] for r in result.values())

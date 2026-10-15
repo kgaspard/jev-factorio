@@ -66,3 +66,28 @@ def closeup(frame: Image.Image) -> tuple[Image.Image, tuple[float, float, float,
         box[3] / frame.height,
     )
     return img, region
+
+
+def _upscaled(frame: Image.Image, box: tuple[int, int, int, int], factor: int) -> Image.Image:
+    crop = frame.crop(box)
+    return crop.resize((crop.width * factor, crop.height * factor), Image.Resampling.LANCZOS)
+
+
+def info_panel(frame: Image.Image) -> Image.Image:
+    """The entity info panel under the minimap, upscaled 3x (the API rejects small images)."""
+    left, top, bottom = config.INFO_PANEL
+    return _upscaled(frame, (frame.width - left, top, frame.width, bottom), 3)
+
+
+def progress_bar(frame: Image.Image) -> Image.Image:
+    """The strip above the quickbar where the hand-mining progress bar appears, upscaled 2x.
+    A thin strip is rejected by the API, so it includes some of the world above."""
+    return _upscaled(frame, config.PROGRESS_BAR, 2)
+
+
+def cursor_closeup(frame: Image.Image, x: int, y: int) -> Image.Image:
+    """The area the '+1 Coal (N)' text rises through, above the cursor at (x, y), 2x."""
+    w, above, below = config.CURSOR_TEXT_AREA
+    left = max(0, min(frame.width - w, x - w // 2))
+    top = max(0, y - above)
+    return _upscaled(frame, (left, top, left + w, min(frame.height, y + below)), 2)

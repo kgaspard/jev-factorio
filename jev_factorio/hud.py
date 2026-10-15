@@ -72,7 +72,6 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
         return img
 
     jev = record["jev"]
-    mini_ans, screen_ans = jev["minimap"]["answers"], jev["screen"]["answers"]
     name = record.get("target_name", "target")
     draw.text(
         (PAD, 62),
@@ -86,10 +85,49 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     _card(draw, y, y + 120, "ACTION")
     action = record["action"]["name"].replace("_", " ")
     decision = record.get("decision", {})
-    colour = GOOD if decision.get("source") == "arrived" else TEXT
+    colour = GOOD if decision.get("source") in ("arrived", "done") else TEXT
     draw.text((PAD, y + 32), action.upper(), fill=colour, font=font(34, bold=True))
     source = decision.get("source", "")
     draw.text((PAD, y + 80), f"[{source}] {decision.get('reason', '')}", fill=DIM, font=font(16))
+
+    if "minimap" in jev:
+        _walk_section(img, draw, record, run_dir, name)
+    else:
+        _mine_section(img, draw, record, run_dir, name)
+
+    # ---- Stats ----
+    y = 914
+    _card(draw, y, h - 10, "STATS")
+    age_ms = max(0, round((now - record["t_shot"]) * 1000))
+    draw.text((PAD, y + 34), f"{age_ms:>5} ms old", fill=ACCENT, font=font(30, bold=True))
+    latency = "  |  ".join(
+        f"{k} {v['ms']} ms" for k, v in jev.items() if isinstance(v, dict) and "ms" in v
+    )
+    lines = [
+        f"latency  {latency}",
+        f"tick     decide {record.get('decide_ms', 0)} ms  |  act {record.get('act_ms', 0)} ms"
+        + ("" if record.get("moved_tiles") is None else f"  |  moved {record['moved_tiles']:.1f}"),
+        f"cost     {jev['tokens']:,} tok  ${jev['cost_usd']:.5f}  |  total "
+        f"${record.get('total_cost_usd', 0):.4f}",
+    ]
+    for i, line in enumerate(lines):
+        draw.text((PAD, y + 80 + i * 24), line, fill=TEXT, font=font(16))
+    return img
+
+
+def _signal_rows(draw, x: int, y: int, col_w: int, signals: list[tuple[str, float]]) -> int:
+    for label, p in signals:
+        draw.text((x, y), label, fill=TEXT, font=font(16))
+        draw.text((x + col_w, y), f"{p:.2f}", fill=TEXT, font=font(16), anchor="ra")
+        _bar(draw, x, y + 22, col_w, 10, p, ACCENT if p >= 0.5 else DIM)
+        y += 48
+    return y
+
+
+def _walk_section(img, draw, record: dict, run_dir: Path, name: str):
+    w = config.PANEL_SIZE[0]
+    jev = record["jev"]
+    mini_ans, screen_ans = jev["minimap"]["answers"], jev["screen"]["answers"]
 
     # ---- Minimap with Jev's box, plus yes/no signals ----
     y = 228
@@ -110,11 +148,7 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
         ("minimap box conf", mini_ans["box_minimap"]["confidence"] or 0),
         ("screen box conf", screen_ans["box_screen"]["confidence"] or 0),
     ]
-    for label, p in signals:
-        draw.text((x, sy), label, fill=TEXT, font=font(16))
-        draw.text((x + col_w, sy), f"{p:.2f}", fill=TEXT, font=font(16), anchor="ra")
-        _bar(draw, x, sy + 22, col_w, 10, p, ACCENT if p >= 0.5 else DIM)
-        sy += 48
+    sy = _signal_rows(draw, x, sy, col_w, signals)
     dx, dy = record.get("screen_box_tiles", [0, 0])
     draw.text((x, sy + 4), f"screen box  {dx:+.0f}, {dy:+.0f} tiles", fill=DIM, font=font(15))
     draw.text(
@@ -139,18 +173,83 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
         draw.text((w - PAD - 4, ry), f"{p:.2f}", fill=TEXT, font=font(16), anchor="ra")
         ry += 28
 
-    # ---- Stats ----
-    y = 914
-    _card(draw, y, h - 10, "STATS")
-    age_ms = max(0, round((now - record["t_shot"]) * 1000))
-    draw.text((PAD, y + 34), f"{age_ms:>5} ms old", fill=ACCENT, font=font(30, bold=True))
-    lines = [
-        f"latency  minimap {jev['minimap']['ms']} ms  |  screen {jev['screen']['ms']} ms",
-        f"tick     decide {record.get('decide_ms', 0)} ms  |  act {record.get('act_ms', 0)} ms"
-        + ("" if record.get("moved_tiles") is None else f"  |  moved {record['moved_tiles']:.1f}"),
-        f"cost     {jev['tokens']:,} tok  ${jev['cost_usd']:.5f}  |  total "
-        f"${record.get('total_cost_usd', 0):.4f}",
-    ]
-    for i, line in enumerate(lines):
-        draw.text((PAD, y + 80 + i * 24), line, fill=TEXT, font=font(16))
-    return img
+
+def _paste_image(img, run_dir: Path, rel: str | None, xy, size, box=None, label="", dot=None):
+    path = run_dir / (rel or "")
+    if not rel or not path.is_file():
+        return
+    shot = _load_image(path).resize(size, Image.Resampling.LANCZOS)
+    if box:
+        _draw_box(shot, box, label)
+    if dot:
+        cx, cy = dot[0] * shot.width, dot[1] * shot.height
+        ImageDraw.Draw(shot).ellipse((cx - 9, cy - 9, cx + 9, cy + 9), outline=BOX, width=3)
+    img.paste(shot, xy)
+
+
+def _mine_section(img, draw, record: dict, run_dir: Path, name: str):
+    w = config.PANEL_SIZE[0]
+    jev, shots = record["jev"], record.get("images", {})
+    state = record.get("state", "")
+
+    # ---- What Jev is looking at this tick ----
+    y = 228
+    _card(draw, y, y + 340, f"WHAT JEV SEES  ({state})")
+    if "aim" in jev:
+        dot = None
+        region, aim = record.get("closeup_region"), record.get("aim")
+        if region and aim and record.get("action", {}).get("kind") == "hover":
+            rl, rt, rr, rb = region
+            dot = ((aim[0] - rl) / (rr - rl), (aim[1] - rt) / (rb - rt))
+        _paste_image(img, run_dir, shots.get("closeup"), (PAD, y + 38), (w - 2 * PAD, 337 - 45),
+                     dot=dot)  # fmt: skip
+    else:
+        if "cursor" in shots:
+            _paste_image(img, run_dir, shots["cursor"], (PAD, y + 38), (400, 258))
+        if "text" in shots:
+            _paste_image(img, run_dir, shots["text"], (PAD, y + 38), (400, 258))
+            _paste_image(img, run_dir, shots.get("bar"), (PAD, y + 300), (400, 34))
+        _paste_image(img, run_dir, shots.get("panel"), (w - PAD - 170, y + 38), (170, 212))
+
+    # ---- Signals and the count ----
+    y = 576
+    _card(draw, y, y + 330, f"MINING {name.upper()}")
+    signals = []
+    if "aim" in jev:
+        probs = jev["aim"]["answers"]["side"]["probs"]
+        top = sorted(probs.items(), key=lambda kv: -kv[1])[:5]
+        signals += [(f"{name} {side.replace('_', ' ')}", p) for side, p in top]
+    if "panel" in jev:
+        a = jev["panel"]["answers"]
+        signals += [("info panel shown", a["panel_shown"]["p"]),
+                    (f"panel says {name}", a["says_target"]["p"])]  # fmt: skip
+    if "corners" in jev:
+        signals.append(
+            (
+                "corners yellow (reach)",
+                jev["corners"]["answers"]["corners"]["probs"].get("yellow", 0.0),
+            )
+        )
+    if "bar" in jev:
+        signals.append(("mining bar", jev["bar"]["answers"]["mining"]["p"]))
+    if "text" in jev:
+        a = jev["text"]["answers"]
+        signals += [("'+1 ... (N)' text", a["text_shown"]["p"]),
+                    ("count conf", a["count"]["confidence"] or 0)]  # fmt: skip
+    col_w = 330
+    _signal_rows(draw, PAD, y + 40, col_w, signals[:5])
+
+    x = PAD + col_w + 30
+    count = record.get("count")
+    goal = record.get("goal", 0)
+    draw.text((x, y + 40), "HAVE", fill=DIM, font=font(16, bold=True))
+    draw.text((x, y + 60), f"{'?' if count is None else count}", fill=ACCENT,
+              font=font(64, bold=True))  # fmt: skip
+    draw.text((x, y + 136), f"of {goal}", fill=TEXT, font=font(22))
+    _bar(draw, x, y + 172, w - PAD - 10 - x, 14, (count or 0) / goal if goal else 0, GOOD)
+    if "text" in jev:
+        c = jev["text"]["answers"]["count"]
+        top = sorted(c["probs"].items(), key=lambda kv: -kv[1])[:3]
+        draw.text((x, y + 200), "Jev reads N:", fill=DIM, font=font(15))
+        for i, (label, p) in enumerate(top):
+            draw.text((x, y + 222 + i * 22), f"{label:>5}  {p:.2f}", fill=TEXT, font=font(16))

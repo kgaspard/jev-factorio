@@ -26,7 +26,9 @@ MOUSE_BUTTONS = ("left", "right")
 @dataclass
 class Action:
     """kind: 'keys' (hold `keys` together for `duration` s; 0 = tap),
-    'click' (press `button` at `target` for `duration` s; 0 = click), or 'wait'.
+    'click' (press `button` at `target` for `duration` s; 0 = click),
+    'hover' (move the cursor to `target`), 'press' (move there and keep `button` down until
+    a 'release'), 'release', or 'wait'.
     `target` is (x, y) as fractions of the game client area."""
 
     name: str
@@ -52,6 +54,18 @@ def wait(duration: float) -> Action:
     return Action("wait", "wait", duration=duration)
 
 
+def hover(name: str, target: tuple[float, float]) -> Action:
+    return Action(name, "hover", target=target)
+
+
+def press(name: str, button: str, target: tuple[float, float]) -> Action:
+    return Action(name, "press", button=button, target=target)
+
+
+def release(name: str, button: str) -> Action:
+    return Action(name, "release", button=button)
+
+
 def execute(action: Action, game: Rect) -> bool:
     """Run the action. Returns False (and does nothing) if Factorio isn't focused."""
     if action.kind == "wait":
@@ -68,16 +82,21 @@ def execute(action: Action, game: Rect) -> bool:
         finally:
             for k in reversed(action.keys):
                 pydirectinput.keyUp(k)
-    elif action.kind == "click":
+    elif action.kind in ("click", "hover", "press"):
         if action.target is None:
-            raise ValueError(f"click action {action.name!r} has no target")
+            raise ValueError(f"{action.kind} action {action.name!r} has no target")
         fx, fy = action.target
         pydirectinput.moveTo(game.left + round(fx * game.width), game.top + round(fy * game.height))
-        try:
+        if action.kind == "press":
             pydirectinput.mouseDown(button=action.button)
-            time.sleep(action.duration or 0.05)
-        finally:
-            pydirectinput.mouseUp(button=action.button)
+        elif action.kind == "click":
+            try:
+                pydirectinput.mouseDown(button=action.button)
+                time.sleep(action.duration or 0.05)
+            finally:
+                pydirectinput.mouseUp(button=action.button)
+    elif action.kind == "release":
+        pydirectinput.mouseUp(button=action.button)
     else:
         raise ValueError(f"unknown action kind {action.kind!r}")
     return True

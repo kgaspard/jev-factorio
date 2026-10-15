@@ -42,6 +42,25 @@ STUCK_MOVED_TILES = 1.0  # a move that shifts the view less than this counts as 
 # Close-up sent to Jev when blocked: this region around the player, upscaled 2x.
 CLOSEUP_SIZE = (640, 360)
 
+# ---- Mining (CP3) ----
+# Measured at 1920x1080: the entity info panel (offset of its left edge from the client's
+# right edge, top, bottom), the strip above the quickbar where the mining bar shows, and the
+# area above the cursor the "+1 Coal (N)" text rises through (width, above, below).
+INFO_PANEL = (256, 390, 710)
+PROGRESS_BAR = (690, 870, 1180, 1070)
+CURSOR_TEXT_AREA = (480, 230, 90)
+PANEL_SAYS_MIN = 0.8  # "panel says <target>" needed before holding right-click
+CORNERS_YELLOW_MIN = 0.5  # selection corners yellow (in reach), also needed
+MINING_BAR_MIN = 0.5
+NO_BAR_TICKS = 2  # ticks without the mining bar before releasing and aiming again
+COUNT_MIN_CONFIDENCE = 0.7  # count choice confidence needed to accept a reading
+MAX_AIMS = 4  # aims that fail the hover check in a row before giving up
+AIM_TILES = 1.5  # how far out from the player to hover on the chosen side
+AIM_UP_TILES = 2.4  # straight up the character sprite is in the way (it is ~2 tiles tall)
+AIM_MAX_SIDES = 4  # sides tried (best first) per aim request
+AIM_SIDE_MIN = 0.08  # sides less likely than this aren't tried
+AIM_NONE_MIN = 0.5  # "none within two tiles" this likely: step closer instead
+
 # ---- Jev ----
 JEV_MODEL = "jev-1.14.0"  # Box needs 1.14 (alias: jev-preview)
 JEV_HEADERS = {"TypeSafe-Danger-Zone-Images": "true"}
