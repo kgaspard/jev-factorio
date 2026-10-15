@@ -2,6 +2,7 @@
 
 Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --seconds 120
       uv run python -m jev_factorio.loop --policy mine --target coal --count 10
+      uv run python -m jev_factorio.loop --policy gather --target iron_ore --count 16
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -24,6 +25,7 @@ from .mine import MinePolicy
 from .navigate import WalkPolicy
 from .recorder import Recorder
 from .runlog import RunLog
+from .sequence import SequencePolicy
 from .targets import TARGETS
 from .window import (
     client_rect,
@@ -66,6 +68,10 @@ POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
     "random": lambda args: RandomPolicy(),
     "walk": lambda args: WalkPolicy(TARGETS[args.target]),
     "mine": lambda args: MinePolicy(TARGETS[args.target], args.count),
+    "gather": lambda args: SequencePolicy(
+        f"gather_{args.target}",
+        [WalkPolicy(TARGETS[args.target]), MinePolicy(TARGETS[args.target], args.count)],
+    ),
 }
 
 
@@ -173,7 +179,10 @@ def run(
         if panel:
             time.sleep(1)  # let the panel show the last decision before closing it
             panel.terminate()
-        outcome = "policy finished" if policy.done else "stopped"
+        if not policy.done:
+            outcome = "stopped"
+        else:
+            outcome = "policy finished" if getattr(policy, "success", True) else "policy gave up"
         print(f"{outcome} after {tick} ticks. Run saved to {log.dir}")
 
 
@@ -181,13 +190,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", choices=POLICIES, default="walk")
     parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="walk/mine target")
-    parser.add_argument("--count", type=int, default=10, help="for --policy mine: how many")
+    parser.add_argument("--count", type=int, default=10, help="mine/gather: how many to have")
     parser.add_argument("--seconds", type=float, default=120)
     parser.add_argument("--tick", type=float, default=config.TICK_SECONDS, help="L in seconds")
     parser.add_argument("--countdown", type=float, default=2)
     parser.add_argument("--no-extras", action="store_true", help="no live panel, no recording")
     args = parser.parse_args()
-    tag = f"{args.policy}-{args.target}" if args.policy in ("walk", "mine") else args.policy
+    targeted = ("walk", "mine", "gather")
+    tag = f"{args.policy}-{args.target}" if args.policy in targeted else args.policy
     policy = POLICIES[args.policy](args)
     run(policy, tag, args.seconds, args.tick, args.countdown, not args.no_extras)
 

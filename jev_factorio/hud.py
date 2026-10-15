@@ -61,6 +61,12 @@ def _draw_box(img: Image.Image, box: list[float], label: str):
     draw.text((xy[0] + 3, xy[1] - 18), label, fill=BOX, font=font(14, bold=True))
 
 
+def _step_label(sequence: dict | None) -> str:
+    if not sequence:
+        return ""
+    return f"  (step {sequence['step'] + 1}/{len(sequence['steps'])})"
+
+
 def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     w, h = config.PANEL_SIZE
     img = Image.new("RGB", (w, h), BG)
@@ -75,7 +81,8 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     name = record.get("target_name", "target")
     draw.text(
         (PAD, 62),
-        f"{config.JEV_MODEL}  |  tick {record['tick']:03d}  |  {record.get('objective', '')}",
+        f"{config.JEV_MODEL}  |  tick {record['tick']:03d}  |  {record.get('objective', '')}"
+        + _step_label(record.get("sequence")),
         fill=DIM,
         font=font(17),
     )
