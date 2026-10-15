@@ -83,6 +83,7 @@ INVENTORY_SLOTS = 80
 INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it
 OPEN_MIN = 0.7  # "inventory open" needed to start reading
 INVENTORY_RETRIES = 3  # failed opens/closes before giving up
+OBJECTIVE_RETRIES = 1  # times a failed objective goes back to the planner before the run stops
 SLOT_CANDIDATES = 3  # slots under a box whose tooltips get checked, nearest first
 TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, absent <= 0.03
 

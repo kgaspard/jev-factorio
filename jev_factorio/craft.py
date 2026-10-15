@@ -14,6 +14,8 @@ item_confirm:           Jev boxes the item in the character grid and reads its t
                         second until the count reaches what was there plus N (crafting takes
                         time: 0.5 s per gear).
 close, verify_closed:   press E until the inventory is closed.
+A pause after the clicks reopens the inventory and goes straight to item_locate: the game
+crafts on while the loop is paused, and the recipe would then read fewer craftable.
 Every check is a slot of a grid: the slots under Jev's box are tried nearest first.
 """
 
@@ -164,8 +166,12 @@ class CraftPolicy:
         self.success = False
 
     def paused(self) -> None:
-        # Unknown what's open now; start over (E toggles, and verify_open checks).
-        self.phase, self.retries, self.clicks = "open", 0, 0
+        # Unknown what's open now; start over (E toggles, and verify_open checks). Clicks
+        # already made stay queued: count on those, not the recipe.
+        if self.clicks and self.clicks < self.count:
+            self.target -= self.count - self.clicks
+            self.count = self.clicks
+        self.phase, self.retries = "open", 0
 
     def _tap(self, name: str, key: str) -> Action:
         return actions.Action(name, "keys", (key,), duration=config.INVENTORY_TAP_SECONDS)
@@ -229,7 +235,11 @@ class CraftPolicy:
     def _verify_open(self, look, frame):
         p = look["open"]["answers"]["open"]["p"]
         if p >= config.OPEN_MIN:
-            self.phase, self.retries, self.inventory_open = "tab_locate", 0, True
+            self.retries, self.inventory_open = 0, True
+            if self.clicks:
+                self.phase = "item_locate"
+                return actions.wait(0), "opened", f"inventory open ({p:.2f}); find the items"
+            self.phase = "tab_locate"
             return actions.wait(0), "opened", f"inventory open ({p:.2f}); find the tab"
         return self._retry(f"inventory not open ({p:.2f})", self._tap("open_inventory", "e"))
 

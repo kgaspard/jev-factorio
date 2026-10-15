@@ -129,6 +129,7 @@ class PlayPolicy:
         self.done = False
         self.success = False
         self.outcome: str | None = None  # how the run ended, for the console
+        self.failures: dict[str, int] = {}  # failed attempts per objective
 
     def paused(self) -> None:
         if self.current is not None and hasattr(self.current, "paused"):
@@ -184,6 +185,13 @@ class PlayPolicy:
         policy.cleanup()
         self.current = None
         if not getattr(policy, "success", True):
+            # Plan again: a half-done objective carries on from what the state says is done.
+            n = self.failures[objective] = self.failures.get(objective, 0) + 1
+            if n <= config.OBJECTIVE_RETRIES:
+                info["decision"]["reason"] += (
+                    f"; {objective} failed ({n}/{config.OBJECTIVE_RETRIES + 1}), plan again"
+                )
+                return
             self.done = True
             info["decision"]["reason"] += f"; {objective} failed, stopping"
             return

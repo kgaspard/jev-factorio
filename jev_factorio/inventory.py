@@ -36,17 +36,24 @@ def slot_centre(i: int) -> tuple[int, int]:
 
 def slot_at(box: list[float]) -> tuple[int | None, int | None]:
     """The slot under the centre of a box given as fractions of the inventory panel crop, and
-    the slot next to it on the side the centre leans towards (None at the grid's edge)."""
+    the slot next to it on the side the centre leans towards (None at the grid's edge). A box
+    with its centre just off the grid but still over it counts as on the nearest edge slot (a
+    box on slot 0 once had its centre above the top row)."""
     left, top, right, bottom = config.INVENTORY_PANEL
-    cx = left + (box[0] + box[2]) / 2 * (right - left)
-    cy = top + (box[1] + box[3]) / 2 * (bottom - top)
+    bl, br = left + box[0] * (right - left), left + box[2] * (right - left)
+    bt, bb = top + box[1] * (bottom - top), top + box[3] * (bottom - top)
     x0, y0 = config.INVENTORY_SLOT0
-    fx = (cx - x0) / config.INVENTORY_SLOT_PITCH
-    col = round(fx)
-    row = round((cy - y0) / config.INVENTORY_SLOT_PITCH)
+    pitch = config.INVENTORY_SLOT_PITCH
     rows = config.INVENTORY_SLOTS // config.INVENTORY_COLUMNS
-    if not (0 <= col < config.INVENTORY_COLUMNS and 0 <= row < rows):
+    gl, gt = x0 - pitch / 2, y0 - pitch / 2
+    gr, gb = gl + config.INVENTORY_COLUMNS * pitch, gt + rows * pitch
+    if not (bl < gr and gl < br and bt < gb and gt < bb):
         return None, None
+    cx = min(max((bl + br) / 2, gl), gr - 1)
+    cy = min(max((bt + bb) / 2, gt), gb - 1)
+    fx = (cx - x0) / pitch
+    col = min(max(round(fx), 0), config.INVENTORY_COLUMNS - 1)
+    row = min(max(round((cy - y0) / pitch), 0), rows - 1)
     side = -1 if fx < col else 1
     ncol = col + side
     if not 0 <= ncol < config.INVENTORY_COLUMNS:
