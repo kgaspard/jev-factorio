@@ -13,6 +13,8 @@ The box alone can't tell present from absent (uranium ore boxed the iron ore slo
 same confidence as real items), but the tooltip can (O36).
 """
 
+from dataclasses import dataclass
+
 from PIL import Image
 
 from . import actions, config
@@ -52,24 +54,53 @@ def slot_at(box: list[float]) -> tuple[int | None, int | None]:
     return row * config.INVENTORY_COLUMNS + col, row * config.INVENTORY_COLUMNS + ncol
 
 
-def slots_in(box: list[float]) -> list[int]:
-    """Slots to check for a box given as fractions of the inventory panel crop: every slot it
-    covers, nearest to its centre first, then slot_at's neighbour. A box once covered three
-    items (slots 0-2) with its centre on the wrong one."""
-    left, top, right, bottom = config.INVENTORY_PANEL
+@dataclass(frozen=True)
+class Grid:
+    """A grid of slots on screen: `panel` is the crop Jev boxes in, `slot0` the first slot's
+    centre (game-area pixels)."""
+
+    panel: tuple[int, int, int, int]
+    slot0: tuple[int, int]
+    columns: int
+    slots: int
+    pitch: int = config.INVENTORY_SLOT_PITCH
+
+    def centre(self, i: int) -> tuple[int, int]:
+        row, col = divmod(i, self.columns)
+        return self.slot0[0] + col * self.pitch, self.slot0[1] + row * self.pitch
+
+
+INVENTORY_GRID = Grid(
+    config.INVENTORY_PANEL,
+    config.INVENTORY_SLOT0,
+    config.INVENTORY_COLUMNS,
+    config.INVENTORY_SLOTS,
+)
+
+
+def slots_in(box: list[float], grid: Grid = INVENTORY_GRID) -> list[int]:
+    """Slots to check for a box given as fractions of the grid's panel crop: every slot it
+    covers, nearest to its centre first, plus the next-nearest one if it covers only one (a
+    box once landed a slot off). A box once covered three items (slots 0-2) with its centre on
+    the wrong one."""
+    left, top, right, bottom = grid.panel
     bl, bt = left + box[0] * (right - left), top + box[1] * (bottom - top)
     br, bb = left + box[2] * (right - left), top + box[3] * (bottom - top)
     cx, cy = (bl + br) / 2, (bt + bb) / 2
-    half = config.INVENTORY_SLOT_PITCH / 2
-    covered = []
-    for i in range(config.INVENTORY_SLOTS):
-        x, y = slot_centre(i)
-        if x - half < br and bl < x + half and y - half < bb and bt < y + half:
-            covered.append((abs(x - cx) + abs(y - cy), i))
-    slots = [i for _, i in sorted(covered)]
-    _, neighbour = slot_at(box)
-    if neighbour is not None and neighbour not in slots:
-        slots.append(neighbour)
+    half = grid.pitch / 2
+
+    def dist(i: int) -> float:
+        x, y = grid.centre(i)
+        return abs(x - cx) + abs(y - cy)
+
+    def covered(i: int) -> bool:
+        x, y = grid.centre(i)
+        return x - half < br and bl < x + half and y - half < bb and bt < y + half
+
+    ranked = sorted(range(grid.slots), key=dist)
+    slots = [i for i in ranked if covered(i)]
+    if len(slots) < 2:
+        slots += [i for i in ranked if i not in slots][: 2 - len(slots)]
     return slots[: config.SLOT_CANDIDATES]
 
 

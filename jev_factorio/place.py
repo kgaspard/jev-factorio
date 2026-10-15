@@ -1,4 +1,4 @@
-"""Objective `place_furnace`: take the stone furnace out of the inventory and put it down next
+"""Objective `place_stone_furnace`: take the stone furnace out of the inventory and put it down next
 to the player.
 
 open, verify_open:     press E until Jev says the inventory is open.
@@ -27,13 +27,12 @@ from .brain import (
 )
 from .capture import cursor_closeup, info_panel, inventory_panel, slot_closeup
 from .inventory import NEUTRAL, slot_at, slot_centre
-from .state import Furnace, GameState
+from .state import Building, GameState
 
-TILE_PX = 32
 ITEM = "stone_furnace"
 
 
-class PlaceFurnacePolicy:
+class PlaceStoneFurnacePolicy:
     def __init__(self, state: GameState) -> None:
         self.state = state
         self.brain = Brain()
@@ -59,7 +58,7 @@ class PlaceFurnacePolicy:
 
     def _spot_px(self, frame: Image.Image) -> tuple[float, float]:
         dx, dy = config.PLACE_SPOTS[self.spot]
-        return frame.width / 2 + dx * TILE_PX, frame.height / 2 + dy * TILE_PX
+        return frame.width / 2 + dx * config.TILE_PX, frame.height / 2 + dy * config.TILE_PX
 
     def decide(self, frame: Image.Image, tick: int) -> tuple[Action, dict]:
         phase = self.phase
@@ -87,7 +86,7 @@ class PlaceFurnacePolicy:
         handler = getattr(self, f"_{phase}")
         action, source, reason = handler(look, frame)
         info = {
-            "objective": "place_furnace",
+            "objective": "place_stone_furnace",
             "phase": phase,
             "jev": look,
             "slot": self.slot,
@@ -134,7 +133,7 @@ class PlaceFurnacePolicy:
             self.phase = "close"
             return (
                 actions.Action(
-                    "pick_up_furnace",
+                    "pick_up_stone_furnace",
                     "click",
                     button="left",
                     target=self._to("", slot_centre(self.slot), frame).target,
@@ -183,7 +182,7 @@ class PlaceFurnacePolicy:
             self.phase = "verify_placed"
             return (
                 actions.Action(
-                    "place_furnace",
+                    "place_stone_furnace",
                     "click",
                     button="left",
                     target=self._to("", self._spot_px(frame), frame).target,
@@ -206,7 +205,8 @@ class PlaceFurnacePolicy:
         dx, dy = config.PLACE_SPOTS[self.spot]
         if p >= config.PANEL_SAYS_MIN:
             self.done = self.success = True
-            self.state.furnace = Furnace(at=(dx, dy))
+            at = self.state.seen_at(self._spot_px(frame), frame)
+            self.state.add(Building(ITEM, at=at))
             if self.state.inventory is not None:
                 self.state.inventory[ITEM] = max(0, self.state.inventory.get(ITEM, 1) - 1)
             return (

@@ -22,7 +22,6 @@ from .brain import Brain, aim_request, corners_request, mining_requests, panel_r
 from .capture import closeup, cursor_closeup, info_panel, progress_bar
 from .targets import Target
 
-TILE_PX = 32  # main view at default zoom
 # Unit steps on screen (y down) for each side.
 _STEP = {
     "up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0),
@@ -35,7 +34,7 @@ def side_point(side: str, width: int, height: int) -> tuple[float, float]:
     """Where to hover for `side`, as fractions of the game area."""
     ux, uy = _STEP[side]
     dist = config.AIM_UP_TILES if side == "up" else config.AIM_TILES
-    return 0.5 + ux * dist * TILE_PX / width, 0.5 + uy * dist * TILE_PX / height
+    return 0.5 + ux * dist * config.TILE_PX / width, 0.5 + uy * dist * config.TILE_PX / height
 
 
 class MinePolicy:

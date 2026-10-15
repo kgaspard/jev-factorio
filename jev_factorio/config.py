@@ -88,15 +88,32 @@ PLACE_SPOTS = [(3, 0), (-3, 0), (0, 3), (3, 3), (-3, 3)]
 PREVIEW_GREEN_MIN = 0.8  # green preview needed to click; red and empty cursors read <= 0.02
 
 # ---- The furnace window (CP5) ----
-FURNACE_WINDOW = (500, 270, 1420, 710)  # where the "Stone furnace" window opens
-FURNACE_SIDE = (965, 320, 1395, 690)  # its right half: status, ore/output slots, fuel slot
-FURNACE_GRID_DY = -4  # its character grid sits 4 px higher than the inventory's (O43)
-WINDOW_OPEN_MIN = 0.8  # open window read 1.00
-WINDOW_CLOSED_MAX = 0.5  # the plain view read 0.26-0.31 (O43), too close to 1 - OPEN_MIN
+STONE_FURNACE_WINDOW = (500, 270, 1420, 710)  # where the "Stone furnace" window opens
+STONE_FURNACE_SIDE = (965, 320, 1395, 690)  # its right half: status, ore/output slots, fuel slot
+STONE_FURNACE_GRID_DY = -4  # its character grid sits 4 px higher than the inventory's (O43)
+WINDOW_OPEN_MIN = 0.8  # "stone_furnace_window" read 1.00 when open
+WINDOW_CLOSED_MIN = 0.8  # "nothing" read 0.92-0.96 on closed views (day and night)
 # Furnace slot centres. Each is read from its own close-up: on the whole half-window Jev
 # mixed the slots up (fuel 0.53 with 10 coal in it), one slot at a time it reads every count.
-FURNACE_SLOTS = {"input": (997, 537), "output": (1357, 537), "fuel": (997, 597)}
-FURNACE_EMPTY_MAX = 0.2  # P(count 0) at most this = the slot holds something
+STONE_FURNACE_SLOTS = {"input": (997, 537), "output": (1357, 537), "fuel": (997, 597)}
+STONE_FURNACE_EMPTY_MAX = 0.2  # P(count 0) at most this = the slot holds something
 STATUS_MIN = 0.8  # furnace status line read; "Working"/"No fuel"/"No ingredients" read 1.00
 SMELT_POLL_SECONDS = 3.0  # between info panel looks while smelting (16 plates take ~51 s)
 SMELT_MAX_POLLS = 40
+
+# ---- Crafting (the panel right of the inventory when E is open) ----
+CRAFTING_PANEL = (965, 320, 1395, 690)  # tabs and recipe grid
+CRAFT_TAB0 = (1018, 352)  # first of 4 tabs: logistics, production, intermediate products, combat
+CRAFT_TAB_PITCH = 106
+RECIPE_SLOT0 = (998, 421)
+RECIPE_COLUMNS = 10
+RECIPE_SLOTS = 70
+CRAFT_POLL_SECONDS = 1.0  # between inventory looks while the crafting queue runs
+CRAFT_EXTRA_POLLS = 5  # looks beyond the recipe's crafting time
+
+# ---- Where things are ----
+TILE_PX = 32  # main view at default zoom
+ODOMETRY_AREA = (100, 100, 1600, 950)  # game view without the HUD, for visual odometry
+GO_TO_NEAR_TILES = 5.0  # go_to_<building> stops this close (reach is about 10 tiles)
+GO_TO_MOVE_SECONDS = 0.25  # one move: 3.34 tiles
+GO_TO_STUCK_TILES = 0.5  # a move that walked less than this is blocked

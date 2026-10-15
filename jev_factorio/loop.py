@@ -4,9 +4,13 @@ Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --secon
       uv run python -m jev_factorio.loop --policy mine --target coal --count 10
       uv run python -m jev_factorio.loop --policy gather --target iron_ore --count 16
       uv run python -m jev_factorio.loop --policy check_inventory --find stone_furnace,uranium_ore
-      uv run python -m jev_factorio.loop --policy play --seconds 300
-      uv run python -m jev_factorio.loop --policy fuel_furnace   (or load_ore,
-                                         wait_for_smelting, collect_plates)
+      uv run python -m jev_factorio.loop --policy play --goal red_science --seconds 900
+      uv run python -m jev_factorio.loop --policy fuel_stone_furnace
+        (or load_iron_ore, load_copper_ore, wait_for_smelting, collect_plates)
+      uv run python -m jev_factorio.loop --policy load_copper_ore --ore copper_ore \
+          --stone-furnace-at=x,y
+        (stone furnace runs walk to --stone-furnace-at first, tiles from the player now)
+      uv run python -m jev_factorio.loop --policy craft --item iron_gear_wheel --count 5
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -25,17 +29,20 @@ from PIL import Image
 from . import actions, config
 from .actions import Action
 from .capture import Screen
-from .furnace import OBJECTIVES as FURNACE_OBJECTIVES
-from .furnace import StoneFurnacePolicy
+from .craft import RECIPES, CraftPolicy
+from .goto import GoToBuildingPolicy
 from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
-from .place import PlaceFurnacePolicy
+from .place import PlaceStoneFurnacePolicy
+from .planner import GOALS
 from .play import PlayPolicy
 from .recorder import Recorder
 from .runlog import RunLog
 from .sequence import SequencePolicy
-from .state import GameState
+from .state import Building, GameState
+from .stone_furnace import OBJECTIVES as STONE_FURNACE_OBJECTIVES
+from .stone_furnace import StoneFurnacePolicy
 from .targets import TARGETS
 from .window import (
     client_rect,
@@ -74,8 +81,24 @@ class RandomPolicy:
         return [actions.tap("toggle_inventory", "e")] if self.inventory_open else []
 
 
+def _stone_furnace_state(args: argparse.Namespace) -> GameState:
+    """--stone-furnace-at x,y (tiles from the player now) and --ore, for runs outside `play`.
+    The ore goes in with count 0: its kind is known, its count isn't."""
+    state = GameState()
+    if args.stone_furnace_at:
+        x, y = (float(v) for v in args.stone_furnace_at.split(","))
+        contents = {args.ore: 0} if args.ore else {}
+        state.add(Building("stone_furnace", at=(x, y), contents=contents))
+    return state
+
+
 def _stone_furnace(objective: str) -> Callable[[argparse.Namespace], Policy]:
-    return lambda args: StoneFurnacePolicy(GameState(), objective)
+    def build(args: argparse.Namespace) -> Policy:
+        state = _stone_furnace_state(args)
+        steps = [GoToBuildingPolicy(state, "stone_furnace"), StoneFurnacePolicy(state, objective)]
+        return SequencePolicy(objective, steps, state)
+
+    return build
 
 
 POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
@@ -86,9 +109,13 @@ POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
         f"gather_{args.target}",
         [WalkPolicy(TARGETS[args.target]), MinePolicy(TARGETS[args.target], args.count)],
     ),
-    "play": lambda args: PlayPolicy(GameState()),
-    "place_furnace": lambda args: PlaceFurnacePolicy(GameState()),
-    **{o: _stone_furnace(o) for o in FURNACE_OBJECTIVES},
+    "play": lambda args: PlayPolicy(GameState(), args.goal),
+    "place_stone_furnace": lambda args: PlaceStoneFurnacePolicy(GameState()),
+    **{o: _stone_furnace(o) for o in STONE_FURNACE_OBJECTIVES},
+    "craft": lambda args: CraftPolicy(GameState(), args.item, args.count),
+    "go_to_stone_furnace": lambda args: GoToBuildingPolicy(
+        _stone_furnace_state(args), "stone_furnace"
+    ),
     "check_inventory": lambda args: CheckInventoryPolicy(
         GameState(), args.find.split(",") if args.find else None
     ),
@@ -131,6 +158,7 @@ def run(
     tick = 0
     try:
         paused_since = None
+        last_action: Action | None = None
         while time.time() - start < seconds and not kill_switch_pressed() and not policy.done:
             # Without focus, keys would go to another window and screenshots may show it, so
             # don't ask Jev at all until Factorio is back in front.
@@ -150,12 +178,16 @@ def run(
             game = client_rect(hwnd)  # follow the window if it moves
             frame = screen.grab(game)
             t_shot = time.time()
+            state = getattr(policy, "state", None)
+            if isinstance(state, GameState):
+                state.observe(frame, last_action)  # visual odometry: where the player is
 
             action, info = policy.decide(frame, tick)
             t_decided = time.time()
 
             executed = actions.execute(action, game)
             t_acted = time.time()
+            last_action = action if executed else None
 
             images = {
                 label: log.save_tick_image(tick, label, img)
@@ -171,6 +203,11 @@ def run(
                     "executed": executed,
                     "decide_ms": round((t_decided - t_shot) * 1000),
                     "act_ms": round((t_acted - t_decided) * 1000),
+                    **(
+                        {"player_at": [round(v, 2) for v in state.player_at]}
+                        if isinstance(state, GameState)
+                        else {}
+                    ),
                     **info,
                 }
             )
@@ -216,6 +253,14 @@ def main():
     parser.add_argument("--policy", choices=POLICIES, default="walk")
     parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="walk/mine target")
     parser.add_argument("--count", type=int, default=10, help="mine/gather: how many to have")
+    parser.add_argument("--item", choices=RECIPES, default="iron_gear_wheel", help="craft: what")
+    parser.add_argument(
+        "--stone-furnace-at", help="stone furnace runs: x,y tiles from the player now"
+    )
+    parser.add_argument("--goal", choices=GOALS, default="red_science", help="play: the goal")
+    parser.add_argument(
+        "--ore", choices=["iron_ore", "copper_ore"], help="ore in the stone furnace"
+    )
     parser.add_argument(
         "--find", help="check_inventory: comma-separated items (default: what the plan needs)"
     )

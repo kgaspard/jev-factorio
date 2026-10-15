@@ -1,6 +1,8 @@
 """The furnace objectives. Each starts by finding the furnace and ends with its window closed.
 
-  fuel_furnace, load_ore:  move coal (fuel) or iron ore (input) in from the inventory.
+  fuel_stone_furnace,
+  load_iron_ore,
+  load_copper_ore:         move coal (fuel) or ore (input) in from the inventory.
   wait_for_smelting:       watch the hover info panel until the ore is used up.
   collect_plates:          move the plates from the output slot to the inventory.
 
@@ -32,45 +34,46 @@ from . import actions, config
 from .actions import Action
 from .brain import (
     Brain,
-    furnace_box_request,
-    furnace_panel_request,
-    furnace_slot_request,
-    furnace_status_request,
     inventory_box_request,
     panel_says_request,
     slot_request,
-    window_open_request,
+    stone_furnace_box_request,
+    stone_furnace_panel_request,
+    stone_furnace_slot_request,
+    stone_furnace_status_request,
+    window_request,
 )
 from .capture import (
     for_jev,
-    furnace_side,
-    furnace_slot,
-    furnace_window,
     info_panel,
     inventory_panel,
     slot_closeup,
+    stone_furnace_side,
+    stone_furnace_slot,
+    stone_furnace_window,
 )
 from .inventory import NEUTRAL, slot_centre, slots_in
-from .state import Furnace, GameState
+from .state import PLATES, Building, GameState
 
-ITEMS = {"fuel_furnace": "coal", "load_ore": "iron_ore"}
+KIND = "stone_furnace"
+ITEMS = {"fuel_stone_furnace": "coal", "load_iron_ore": "iron_ore", "load_copper_ore": "copper_ore"}
 OBJECTIVES = [*ITEMS, "wait_for_smelting", "collect_plates"]
-SLOT = {"coal": "fuel", "iron_ore": "input"}  # where ctrl+click puts it
+SLOT = {"coal": "fuel", "iron_ore": "input", "copper_ore": "input"}  # where ctrl+click puts it
 
 
 def grid_slot_centre(i: int) -> tuple[int, int]:
     x, y = slot_centre(i)
-    return x, y + config.FURNACE_GRID_DY
+    return x, y + config.STONE_FURNACE_GRID_DY
 
 
 class StoneFurnacePolicy:
     def __init__(self, state: GameState, objective: str) -> None:
         self.state = state
         self.objective = objective
-        self.item = ITEMS.get(objective, "iron_plate")
+        self.item = ITEMS.get(objective) or self._plates_kind()
         self.brain = Brain()
         self.phase = "find"
-        self.furnace_px: tuple[float, float] | None = None
+        self.stone_furnace_px: tuple[float, float] | None = None
         self.slot: int | None = None
         self.candidates: list[int] = []  # slots under the box still to check
         self.held = 0  # the count read off the inventory slot (or the output slot)
@@ -81,6 +84,18 @@ class StoneFurnacePolicy:
         self.total_cost = 0.0
         self.done = False
         self.success = False
+
+    def _plates_kind(self) -> str:
+        """What collect_plates takes: the plates of the ore that was smelted (iron if unknown;
+        naming the icon itself was unsure, O44)."""
+        b = self.state.building(KIND)
+        plates = b.holds(PLATES.values()) if b else None
+        ore = b.holds(PLATES) if b else None
+        return plates or (PLATES[ore] if ore else "iron_plate")
+
+    def _stone_furnace(self) -> Building:
+        """This stone furnace in the state, added if the state didn't know it yet."""
+        return self.state.building(KIND) or self.state.add(Building(KIND))
 
     def paused(self) -> None:
         # A window may be open; E in cleanup/close handles it. Start over from finding.
@@ -98,18 +113,18 @@ class StoneFurnacePolicy:
         jobs: dict = {}
         if phase == "find":
             images["view"] = for_jev(frame)
-            jobs["find"] = furnace_box_request(images["view"])
+            jobs["find"] = stone_furnace_box_request(images["view"])
         elif phase in ("check_hover", "watch"):
             images["panel"] = info_panel(frame)
             jobs["panel"] = panel_says_request(images["panel"], "Stone furnace")
             if phase == "watch":
-                jobs["watch"] = furnace_panel_request(images["panel"])
+                jobs["watch"] = stone_furnace_panel_request(images["panel"])
         elif phase in ("take", "verify_taken"):
-            images["output"] = furnace_slot(frame, "output")
-            jobs["output"] = furnace_slot_request(images["output"])
+            images["output"] = stone_furnace_slot(frame, "output")
+            jobs["output"] = stone_furnace_slot_request(images["output"])
         elif phase in ("verify_open", "verify_closed"):
-            images["window"] = furnace_window(frame)
-            jobs["window"] = window_open_request(images["window"])
+            images["window"] = stone_furnace_window(frame)
+            jobs["window"] = window_request(images["window"])
         elif phase == "locate":
             images["inventory"] = inventory_panel(frame)
             jobs["locate"] = inventory_box_request(images["inventory"], self.item)
@@ -118,11 +133,11 @@ class StoneFurnacePolicy:
             images["slot"] = slot_closeup(frame, *grid_slot_centre(self.slot))
             jobs["slot"] = slot_request(images["slot"])
         elif phase == "verify_moved":
-            images["side"] = furnace_side(frame)
-            jobs["status"] = furnace_status_request(images["side"])
-            for name in config.FURNACE_SLOTS:
-                images[name] = furnace_slot(frame, name)
-                jobs[name] = furnace_slot_request(images[name])
+            images["side"] = stone_furnace_side(frame)
+            jobs["status"] = stone_furnace_status_request(images["side"])
+            for name in config.STONE_FURNACE_SLOTS:
+                images[name] = stone_furnace_slot(frame, name)
+                jobs[name] = stone_furnace_slot_request(images[name])
         look: dict = self.brain.ask(jobs) if jobs else {"tokens": 0, "cost_usd": 0.0}
         self.total_cost += look["cost_usd"]
         action, source, reason = getattr(self, f"_{phase}")(look, frame)
@@ -141,11 +156,11 @@ class StoneFurnacePolicy:
     def _find(self, look, frame):
         a = look["find"]["answers"]["box"]
         b = a["box"]
-        self.furnace_px = ((b[0] + b[2]) / 2 * frame.width, (b[1] + b[3]) / 2 * frame.height)
+        self.stone_furnace_px = ((b[0] + b[2]) / 2 * frame.width, (b[1] + b[3]) / 2 * frame.height)
         self.phase = "watch" if self.objective == "wait_for_smelting" else "check_hover"
-        x, y = self.furnace_px
+        x, y = self.stone_furnace_px
         return (
-            self._to("hover_furnace", self.furnace_px, frame),
+            self._to("hover_stone_furnace", self.stone_furnace_px, frame),
             "find",
             f"furnace boxed at ({x:.0f},{y:.0f}) ({a['confidence'] or 0:.2f})",
         )
@@ -153,26 +168,30 @@ class StoneFurnacePolicy:
     def _check_hover(self, look, frame):
         p = look["panel"]["answers"]["says"]["p"]
         if p >= config.PANEL_SAYS_MIN:
-            assert self.furnace_px is not None
-            if self.state.furnace is None:
-                self.state.furnace = Furnace()
+            assert self.stone_furnace_px is not None
+            self._stone_furnace().at = self.state.seen_at(self.stone_furnace_px, frame)
             self.phase, self.retries = "verify_open", 0
             return self._open_click(frame), "open", f"panel says stone furnace ({p:.2f}); open it"
         self.phase = "find"
         return self._retry(f"panel doesn't say stone furnace ({p:.2f})", actions.wait(0))
 
     def _open_click(self, frame) -> Action:
-        assert self.furnace_px is not None
-        target = self._to("", self.furnace_px, frame).target
-        return actions.Action("open_furnace", "click", button="left", target=target, duration=0.1)
+        assert self.stone_furnace_px is not None
+        target = self._to("", self.stone_furnace_px, frame).target
+        return actions.Action(
+            "open_stone_furnace", "click", button="left", target=target, duration=0.1
+        )
 
     def _verify_open(self, look, frame):
-        p = look["window"]["answers"]["open"]["p"]
+        c = look["window"]["answers"]["which"]
+        p = c["probs"].get("stone_furnace_window", 0.0)
         if p >= config.WINDOW_OPEN_MIN:
             self.retries, self.window_open = 0, True
             self.phase = "take" if self.objective == "collect_plates" else "locate"
             # Off the window, so no tooltip covers the grid.
             return self._to("hover_off", NEUTRAL, frame), "opened", f"window open ({p:.2f})"
+        if c["choice"] == "inventory":  # a stray E: close it, then click the furnace again
+            return self._retry("the inventory is open", self._tap("close_window", "e"))
         return self._retry(f"window not open ({p:.2f})", self._open_click(frame))
 
     # ---- wait_for_smelting: the info panel ----
@@ -188,11 +207,14 @@ class StoneFurnacePolicy:
         self.polls += 1
         why = f"{status} ({p:.2f}), {finished} finished"
         if p >= config.STATUS_MIN and status in ("no_ingredients", "output_full"):
-            f = self.state.furnace or Furnace()
-            self.state.furnace = f
-            if finished.isdigit():
-                f.plates_ready = int(finished) - f.plates_taken
-            f.ore = 0
+            # "Products finished" counts the furnace's whole life; plates taken out before
+            # are in `taken`. The ore is used up; what's left is plates of its kind.
+            b = self._stone_furnace()
+            ore = b.holds(PLATES)
+            if ore:
+                b.contents.pop(ore)
+                if finished.isdigit():
+                    b.contents[PLATES[ore]] = int(finished) - sum(b.taken.values())
             self.done = self.success = True
             return self._to("hover_off", NEUTRAL, frame), "smelted", f"{why}; done"
         if p >= config.STATUS_MIN and status == "no_fuel":
@@ -203,13 +225,13 @@ class StoneFurnacePolicy:
 
     # ---- collect_plates: the output slot ----
     def _output_target(self, frame) -> tuple[float, float]:
-        x, y = config.FURNACE_SLOTS["output"]
+        x, y = config.STONE_FURNACE_SLOTS["output"]
         return x / frame.width, y / frame.height
 
     def _take(self, look, frame):
         c = look["output"]["answers"]["count"]
         empty, count = c["probs"].get("0", 0.0), c["choice"]
-        if empty > config.FURNACE_EMPTY_MAX or not count.isdigit():
+        if empty > config.STONE_FURNACE_EMPTY_MAX or not count.isdigit():
             return self._fail(f"output slot reads empty ({empty:.2f}), nothing to collect")
         self.held, self.phase = int(count), "verify_taken"
         return (
@@ -223,20 +245,17 @@ class StoneFurnacePolicy:
     def _verify_taken(self, look, frame):
         c = look["output"]["answers"]["count"]
         empty = c["probs"].get("0", 0.0)
-        if empty >= 1 - config.FURNACE_EMPTY_MAX:
+        if empty >= 1 - config.STONE_FURNACE_EMPTY_MAX:
             took = self.taken + self.held
-            f = self.state.furnace or Furnace()
-            self.state.furnace = f
-            f.plates_taken += took
-            f.plates_ready = 0
+            self._stone_furnace().took(self.item, took)
             inv = self.state.inventory
             if inv is not None:
-                inv["iron_plate"] = inv.get("iron_plate", 0) + took
+                inv[self.item] = inv.get(self.item, 0) + took
             self.phase, self.retries = "verify_closed", 0
             return (
                 self._tap("close_window", "e"),
                 "taken",
-                f"output slot empty ({empty:.2f}), took {took} plates; close",
+                f"output slot empty ({empty:.2f}), took {took} {self.item}; close",
             )
         # More may have finished meanwhile (fewer than before: the click took), or the click
         # didn't take (as many as before): read and click again.
@@ -296,16 +315,11 @@ class StoneFurnacePolicy:
         status = f"status {s['choice']} ({s['confidence'] or 0:.2f})"
         c = look[SLOT[self.item]]["answers"]["count"]
         empty, count = c["probs"].get("0", 0.0), c["choice"]
-        if empty <= config.FURNACE_EMPTY_MAX:
+        if empty <= config.STONE_FURNACE_EMPTY_MAX:
             # Ctrl+click moves the whole stack (both fit in a furnace slot). The slot count
             # is already lower: the furnace starts burning and smelting at once (16 ore in,
             # the slot read 15 with one at 4%), so count what left the inventory.
-            f = self.state.furnace or Furnace()
-            self.state.furnace = f
-            if self.item == "coal":
-                f.fuel += self.held
-            else:
-                f.ore += self.held
+            self._stone_furnace().put(self.item, self.held)
             if self.state.inventory is not None:
                 self.state.inventory[self.item] = 0
             self.phase, self.retries = "verify_closed", 0
@@ -322,12 +336,15 @@ class StoneFurnacePolicy:
         )
 
     def _verify_closed(self, look, frame):
-        p = look["window"]["answers"]["open"]["p"]
-        if p < config.WINDOW_CLOSED_MAX:
+        c = look["window"]["answers"]["which"]
+        p = c["probs"].get("nothing", 0.0)
+        if p >= config.WINDOW_CLOSED_MIN:
             self.window_open = False
             self.done = self.success = True
-            return self._to("hover_off", NEUTRAL, frame), "closed", f"window closed ({p:.2f})"
-        return self._retry(f"window still open ({p:.2f})", self._tap("close_window", "e"))
+            return self._to("hover_off", NEUTRAL, frame), "closed", f"no window open ({p:.2f})"
+        # E closes whichever window it is.
+        why = f"{c['choice']} still open ({c['confidence'] or 0:.2f})"
+        return self._retry(why, self._tap("close_window", "e"))
 
     # ---- shared ----
     def _retry(self, why: str, action: Action):

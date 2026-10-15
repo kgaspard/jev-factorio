@@ -47,6 +47,10 @@ def move(direction: str, duration: float) -> Action:
     return Action(f"move_{direction}", "keys", tuple(MOVE_KEYS[direction]), duration=duration)
 
 
+def is_move(action: Action) -> bool:
+    return action.kind == "keys" and bool(action.keys) and set(action.keys) <= set("wasd")
+
+
 def tap(name: str, key: str) -> Action:
     return Action(name, "keys", (key,))
 

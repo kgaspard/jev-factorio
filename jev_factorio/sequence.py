@@ -7,8 +7,9 @@ from .actions import Action
 
 
 class SequencePolicy:
-    def __init__(self, name: str, steps: list) -> None:
+    def __init__(self, name: str, steps: list, state=None) -> None:
         self.name = name
+        self.state = state  # the steps' shared GameState, if any (the loop updates it)
         self.steps = steps
         self.index = 0
         self.cost_before = 0.0  # Jev cost of the finished steps

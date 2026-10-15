@@ -191,7 +191,7 @@ def preview_request(cursor: Image.Image) -> tuple[list, dict]:
     }
 
 
-FURNACE_LOOK = (
+STONE_FURNACE_LOOK = (
     "a small square building of grey stone blocks with yellow sides, about two tiles wide. An "
     "unfuelled one shows a red triangle warning icon with a fuel pump on it"
 )
@@ -199,16 +199,16 @@ WINDOW_CONTEXT = (
     "This is the middle of the game screen. Clicking a building opens its window here: the "
     "character's inventory on the left, the building's slots on the right."
 )
-FURNACE_SIDE_CONTEXT = (
+STONE_FURNACE_SIDE_CONTEXT = (
     "This is the right half of an open stone furnace window, with a status line at the top "
     "next to a coloured dot."
 )
-FURNACE_SLOT_CONTEXT = (
+STONE_FURNACE_SLOT_CONTEXT = (
     "This is a close-up of one item slot in a Factorio building window. An empty slot is a "
     "plain dark square (a fuel slot shows a faint fuel pump outline). A slot holding items "
     "shows the item's icon with its count in the bottom-right corner."
 )
-FURNACE_STATUS = {
+STONE_FURNACE_STATUS = {
     "no_fuel": "'No fuel'",
     "working": "'Working'",
     "no_ingredients": "'No ingredients' or 'No input'",
@@ -218,32 +218,46 @@ FURNACE_STATUS = {
 SLOT_COUNTS = {"0": "Empty", **{str(n): None for n in range(1, 101)}}
 
 
-def furnace_box_request(view: Image.Image) -> tuple[list, dict]:
+def stone_furnace_box_request(view: Image.Image) -> tuple[list, dict]:
     """Where is the furnace? The Noul reads low even when the box is right (O43); the info
     panel decides."""
     return [GAME_CONTEXT, "This is the main game view.", JevImage.from_pil(view)], {
-        "box": Box(instructions=f"The stone furnace. It looks like {FURNACE_LOOK}."),
+        "box": Box(instructions=f"The stone furnace. It looks like {STONE_FURNACE_LOOK}."),
     }
 
 
-def window_open_request(window: Image.Image) -> tuple[list, dict]:
+WINDOWS = {
+    "stone_furnace_window": "A window titled 'Stone furnace'",
+    "inventory": "A window titled 'Character' next to one titled 'Crafting'",
+    "nothing": "No window: only the game world",
+}
+
+
+def window_request(window: Image.Image) -> tuple[list, dict]:
+    """Which window is open. A yes/no "is a furnace window open?" read 0.44-0.70 on a closed
+    day view with the furnace on the ground in the crop, and 0.51-0.56 on the open inventory;
+    this Choice read the right answer at 0.92-1.00 on all of them."""
     return [GAME_CONTEXT, WINDOW_CONTEXT, JevImage.from_pil(window)], {
-        "open": Noul(instructions="Is the window of a stone furnace open?"),
+        "which": Choice(
+            instructions="Which window is open in the middle of the screen?", criteria=WINDOWS
+        ),
     }
 
 
-def furnace_status_request(side: Image.Image) -> tuple[list, dict]:
-    return [GAME_CONTEXT, FURNACE_SIDE_CONTEXT, JevImage.from_pil(side)], {
-        "status": Choice(instructions="What does the status line say?", criteria=FURNACE_STATUS),
+def stone_furnace_status_request(side: Image.Image) -> tuple[list, dict]:
+    return [GAME_CONTEXT, STONE_FURNACE_SIDE_CONTEXT, JevImage.from_pil(side)], {
+        "status": Choice(
+            instructions="What does the status line say?", criteria=STONE_FURNACE_STATUS
+        ),
     }
 
 
-def furnace_panel_request(panel: Image.Image) -> tuple[list, dict]:
+def stone_furnace_panel_request(panel: Image.Image) -> tuple[list, dict]:
     """The hover info panel of a furnace: its status line and lifetime product count."""
     return [GAME_CONTEXT, PANEL_CONTEXT, JevImage.from_pil(panel)], {
         "status": Choice(
             instructions="What does the status line (next to the coloured dot) say?",
-            criteria=FURNACE_STATUS,
+            criteria=STONE_FURNACE_STATUS,
         ),
         "finished": Choice(
             instructions="What number follows 'Products finished:'?",
@@ -255,11 +269,62 @@ def furnace_panel_request(panel: Image.Image) -> tuple[list, dict]:
     }
 
 
-def furnace_slot_request(slot: Image.Image) -> tuple[list, dict]:
+def stone_furnace_slot_request(slot: Image.Image) -> tuple[list, dict]:
     """Only the count: the slot decides what kind of item it is (fuel or ore), and naming the
     icon was unsure (coal 0.52-0.57) while the count read 1.00."""
-    return [GAME_CONTEXT, FURNACE_SLOT_CONTEXT, JevImage.from_pil(slot)], {
+    return [GAME_CONTEXT, STONE_FURNACE_SLOT_CONTEXT, JevImage.from_pil(slot)], {
         "count": Choice(instructions="What number is on the item icon?", criteria=SLOT_COUNTS),
+    }
+
+
+CRAFT_CONTEXT = (
+    "This is the crafting panel. Four tabs at the top pick a recipe group; below them is a "
+    "grid of recipe icons. A number on a recipe icon is how many the player can craft now. Red "
+    "recipes can't be crafted by hand."
+)
+CRAFT_TABS = {
+    "logistics": "'Logistics'",
+    "production": "'Production'",
+    "intermediate_products": "'Intermediate products'",
+    "combat": "'Combat'",
+}
+TIP_CONTEXT = (
+    "This is a close-up of the crafting panel around the mouse cursor, which hovers the {} at "
+    "the top-left; its tooltip appears below and to the right."
+)
+
+
+def crafting_box_request(panel: Image.Image, what: str) -> tuple[list, dict]:
+    return [GAME_CONTEXT, CRAFT_CONTEXT, JevImage.from_pil(panel)], {
+        "box": Box(instructions=what),
+    }
+
+
+def tab_request(closeup: Image.Image) -> tuple[list, dict]:
+    return [GAME_CONTEXT, TIP_CONTEXT.format("tab"), JevImage.from_pil(closeup)], {
+        "tab": Choice(
+            instructions="What does the tooltip say?",
+            criteria={**CRAFT_TABS, "none": "No tooltip"},
+        ),
+    }
+
+
+def recipe_request(closeup: Image.Image, recipes: list[str]) -> tuple[list, dict]:
+    """The hovered recipe's tooltip title, and the number on its icon (how many can be
+    crafted now)."""
+    return [GAME_CONTEXT, TIP_CONTEXT.format("recipe icon"), JevImage.from_pil(closeup)], {
+        "recipe": Choice(
+            instructions="What name is in the tooltip's title bar?",
+            criteria={
+                **{r: f"'{ITEM_NAMES[r].capitalize()} (Recipe)'" for r in recipes},
+                "other": "Another name",
+                "none": "No tooltip",
+            },
+        ),
+        "craftable": Choice(
+            instructions="What number is on the hovered recipe icon?",
+            criteria={"0": "No number", **{str(n): None for n in range(1, 101)}},
+        ),
     }
 
 

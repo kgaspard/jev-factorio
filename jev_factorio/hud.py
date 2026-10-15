@@ -104,12 +104,14 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     if record.get("objective") == "plan":
         _plan_section(img, draw, record)
     elif record.get("objective") in (
-        "place_furnace",
-        "fuel_furnace",
-        "load_ore",
+        "place_stone_furnace",
+        "fuel_stone_furnace",
+        "load_iron_ore",
+        "load_copper_ore",
+        "go_to_stone_furnace",
         "wait_for_smelting",
         "collect_plates",
-    ):
+    ) or str(record.get("objective", "")).startswith("craft_"):
         _generic_section(img, draw, record, run_dir)
     elif record.get("objective") == "check_inventory":
         _inventory_section(img, draw, record, run_dir)
@@ -130,7 +132,7 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
         f"latency  {latency}",
         f"tick     decide {record.get('decide_ms', 0)} ms  |  act {record.get('act_ms', 0)} ms"
         + ("" if record.get("moved_tiles") is None else f"  |  moved {record['moved_tiles']:.1f}"),
-        f"cost     {jev['tokens']:,} tok  ${jev['cost_usd']:.5f}  |  total "
+        f"cost     {jev.get('tokens', 0):,} tok  ${jev.get('cost_usd', 0.0):.5f}  |  total "
         f"${record.get('total_cost_usd', 0):.4f}",
     ]
     for i, line in enumerate(lines):
@@ -363,11 +365,14 @@ def _generic_section(img, draw, record: dict, run_dir: Path):
         ("view", (515, 290), (PAD + 42, y + 38)),
         ("window", (w - 2 * PAD, 287), (PAD, y + 38)),
         ("side", (330, 284), (PAD + 135, y + 38)),
-        ("output", (285, 285), (PAD + 157, y + 38)),  # verify_moved: the slots go in the bars
+        ("output", (285, 285), (PAD + 157, y + 38)),
+        ("crafting", (330, 284), (PAD + 135, y + 38)),  # verify_moved: the slots go in the bars
     ]:
         if name in shots:
             box = None
             if name == "inventory" and "locate" in jev:
+                box = jev["locate"]["answers"]["box"]["box"]
+            if name == "crafting" and "locate" in jev:
                 box = jev["locate"]["answers"]["box"]["box"]
             if name == "view" and "find" in jev:
                 box = jev["find"]["answers"]["box"]["box"]
