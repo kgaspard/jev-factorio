@@ -5,12 +5,16 @@ Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --secon
       uv run python -m jev_factorio.loop --policy gather --target iron_ore --count 16
       uv run python -m jev_factorio.loop --policy check_inventory --find stone_furnace,uranium_ore
       uv run python -m jev_factorio.loop --policy play --goal red_science --seconds 900
+      uv run python -m jev_factorio.loop --policy play --resume   (carry on from the last run)
       uv run python -m jev_factorio.loop --policy fuel_stone_furnace
-        (or load_iron_ore, load_copper_ore, wait_for_smelting, collect_plates)
+        (or load_iron_ore, load_copper_ore, wait_for_smelting, collect_iron_plates, ...)
       uv run python -m jev_factorio.loop --policy load_copper_ore --ore copper_ore \
           --stone-furnace-at=x,y
         (stone furnace runs walk to --stone-furnace-at first, tiles from the player now)
       uv run python -m jev_factorio.loop --policy craft --item iron_gear_wheel --count 5
+      uv run python -m jev_factorio.loop --policy set_up_mining --target iron_ore
+      uv run python -m jev_factorio.loop --policy place_burner_mining_drill --target iron_ore
+      uv run python -m jev_factorio.loop --policy fuel_burner_mining_drill
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -22,21 +26,23 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 from PIL import Image
 
 from . import actions, config
 from .actions import Action
+from .burner_mining_drill import BurnerMiningDrillPolicy
 from .capture import Screen
 from .craft import RECIPES, CraftPolicy
 from .goto import GoToBuildingPolicy
 from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
-from .place import PlaceStoneFurnacePolicy
+from .place import PlacePolicy
 from .planner import GOALS
-from .play import PlayPolicy
+from .play import PlayPolicy, set_up_mining
 from .recorder import Recorder
 from .runlog import RunLog
 from .sequence import SequencePolicy
@@ -92,10 +98,33 @@ def _stone_furnace_state(args: argparse.Namespace) -> GameState:
     return state
 
 
+def _resumed(args: argparse.Namespace) -> GameState:
+    """--resume: the state the last run (or the given one) saved, else a fresh one."""
+    if not args.resume:
+        return GameState()
+    if args.resume == "last":
+        saved = sorted(config.RUNS_DIR.glob("*/state.json"))
+        if not saved:
+            raise SystemExit("--resume: no run has saved a state.json yet")
+        path = saved[-1]
+    else:
+        path = Path(args.resume)
+    print(f"Resuming from {path}")
+    return GameState.load(path)
+
+
+def _go_to_stone_furnace(state: GameState) -> Policy:
+    return GoToBuildingPolicy(state, state.building("stone_furnace"), "stone_furnace")
+
+
 def _stone_furnace(objective: str) -> Callable[[argparse.Namespace], Policy]:
     def build(args: argparse.Namespace) -> Policy:
         state = _stone_furnace_state(args)
-        steps = [GoToBuildingPolicy(state, "stone_furnace"), StoneFurnacePolicy(state, objective)]
+        furnace = state.building("stone_furnace")
+        steps = [
+            GoToBuildingPolicy(state, furnace, "stone_furnace"),
+            StoneFurnacePolicy(state, objective, furnace),
+        ]
         return SequencePolicy(objective, steps, state)
 
     return build
@@ -109,13 +138,20 @@ POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
         f"gather_{args.target}",
         [WalkPolicy(TARGETS[args.target]), MinePolicy(TARGETS[args.target], args.count)],
     ),
-    "play": lambda args: PlayPolicy(GameState(), args.goal),
-    "place_stone_furnace": lambda args: PlaceStoneFurnacePolicy(GameState()),
+    "play": lambda args: PlayPolicy(_resumed(args), args.goal),
+    "place_stone_furnace": lambda args: PlacePolicy(GameState()),
+    "place_burner_mining_drill": lambda args: PlacePolicy(
+        GameState(),
+        "burner_mining_drill",
+        config.BURNER_MINING_DRILL_SPOTS,
+        ore=args.target,
+        site=args.target,
+    ),
+    "set_up_mining": lambda args: set_up_mining(GameState(), args.target),
+    "fuel_burner_mining_drill": lambda args: BurnerMiningDrillPolicy(GameState()),
     **{o: _stone_furnace(o) for o in STONE_FURNACE_OBJECTIVES},
     "craft": lambda args: CraftPolicy(GameState(), args.item, args.count),
-    "go_to_stone_furnace": lambda args: GoToBuildingPolicy(
-        _stone_furnace_state(args), "stone_furnace"
-    ),
+    "go_to_stone_furnace": lambda args: _go_to_stone_furnace(_stone_furnace_state(args)),
     "check_inventory": lambda args: CheckInventoryPolicy(
         GameState(), args.find.split(",") if args.find else None
     ),
@@ -181,6 +217,7 @@ def run(
             state = getattr(policy, "state", None)
             if isinstance(state, GameState):
                 state.observe(frame, last_action)  # visual odometry: where the player is
+                state.save(log.dir / "state.json")  # every tick: a killed run can resume
 
             action, info = policy.decide(frame, tick)
             t_decided = time.time()
@@ -238,6 +275,7 @@ def run(
             panel.terminate()
         state = getattr(policy, "state", None)
         if isinstance(state, GameState):
+            state.save(log.dir / "state.json")
             print(state.describe())
         if not policy.done:
             outcome = "stopped"
@@ -251,13 +289,21 @@ def run(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", choices=POLICIES, default="walk")
-    parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="walk/mine target")
+    parser.add_argument(
+        "--target", choices=TARGETS, default="iron_ore", help="walk/mine target, drill ore"
+    )
     parser.add_argument("--count", type=int, default=10, help="mine/gather: how many to have")
     parser.add_argument("--item", choices=RECIPES, default="iron_gear_wheel", help="craft: what")
     parser.add_argument(
         "--stone-furnace-at", help="stone furnace runs: x,y tiles from the player now"
     )
     parser.add_argument("--goal", choices=GOALS, default="red_science", help="play: the goal")
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const="last",
+        help="play: carry on from the state the last run saved (or this state.json)",
+    )
     parser.add_argument(
         "--ore", choices=["iron_ore", "copper_ore"], help="ore in the stone furnace"
     )
@@ -269,7 +315,7 @@ def main():
     parser.add_argument("--countdown", type=float, default=2)
     parser.add_argument("--no-extras", action="store_true", help="no live panel, no recording")
     args = parser.parse_args()
-    targeted = ("walk", "mine", "gather")
+    targeted = ("walk", "mine", "gather", "set_up_mining", "place_burner_mining_drill")
     tag = f"{args.policy}-{args.target}" if args.policy in targeted else args.policy
     policy = POLICIES[args.policy](args)
     run(policy, tag, args.seconds, args.tick, args.countdown, not args.no_extras)

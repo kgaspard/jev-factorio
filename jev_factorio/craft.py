@@ -53,7 +53,7 @@ RECIPES = {
         "intermediate_products", {"iron_plate": 1, "copper_cable": 3}, 0.5
     ),
     "transport_belt": Recipe("logistics", {"iron_gear_wheel": 1, "iron_plate": 1}, 0.5, makes=2),
-    # Crafting a lab researches "Automation science pack" (a 2.0 trigger technology, O54).
+    # Crafting a lab researches "Automation science pack" (a 2.0 trigger technology).
     "lab": Recipe(
         "production",
         {"electronic_circuit": 10, "iron_gear_wheel": 10, "transport_belt": 4},
@@ -61,6 +61,11 @@ RECIPES = {
     ),
     "automation_science_pack": Recipe(
         "intermediate_products", {"copper_plate": 1, "iron_gear_wheel": 1}, 5.0
+    ),
+    "stone_furnace": Recipe("production", {"stone": 5}, 0.5),
+    # Uses a stone furnace from the inventory if there is one: craft drills before furnaces.
+    "burner_mining_drill": Recipe(
+        "production", {"iron_gear_wheel": 3, "iron_plate": 3, "stone_furnace": 1}, 2.0
     ),
 }
 

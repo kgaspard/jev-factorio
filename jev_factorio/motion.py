@@ -4,7 +4,9 @@ player, so the shift between two screenshots of the world is the player's moveme
 import numpy as np
 from PIL import Image
 
-_SCALE = 4  # downscale factor; at 32 px per tile, 1 px of the thumbnail is 1/8 tile
+from . import config
+
+_SCALE = 4  # downscale factor; at 48 px per tile, 1 px of the thumbnail is 1/12 tile
 _WORLD = (0, 0, 1600, 952)  # game world only: leaves out the minimap and the hotbar
 
 
@@ -16,7 +18,7 @@ def world_thumb(frame: Image.Image) -> np.ndarray:
 
 def moved_tiles(prev: np.ndarray, cur: np.ndarray) -> float:
     """Distance the camera moved, in tiles, by phase correlation. Walking one 250 ms stride
-    measured 3.4-3.5 tiles, day or night; blocked by a tree, 0.0-0.4."""
+    measured 2.3 tiles, day or night; blocked by a tree, 0.0-0.3."""
     a, b = prev - prev.mean(), cur - cur.mean()
     window = np.outer(np.hanning(a.shape[0]), np.hanning(a.shape[1]))  # no edge artefacts
     cross = np.fft.fft2(a * window) * np.conj(np.fft.fft2(b * window))
@@ -24,4 +26,4 @@ def moved_tiles(prev: np.ndarray, cur: np.ndarray) -> float:
     y, x = np.unravel_index(np.argmax(peak), peak.shape)
     dy = y - peak.shape[0] if y > peak.shape[0] // 2 else y
     dx = x - peak.shape[1] if x > peak.shape[1] // 2 else x
-    return float(np.hypot(dx, dy)) * _SCALE / 32
+    return float(np.hypot(dx, dy)) * _SCALE / config.TILE_PX

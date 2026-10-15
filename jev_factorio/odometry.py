@@ -1,6 +1,6 @@
 """Visual odometry: how far the player walked between two frames. The camera follows the
 player, so the ground shifts by the distance walked; phase correlation finds that shift. No
-Jev call. On a recorded walk, each 0.25 s move read 107 px (3.34 tiles) in any direction."""
+Jev call. On a recorded walk, each 0.25 s move read 107 px (2.2 tiles) in any direction."""
 
 import numpy as np
 from PIL import Image

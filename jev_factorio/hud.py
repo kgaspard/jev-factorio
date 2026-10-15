@@ -101,24 +101,17 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
     for i, line in enumerate(reason[:2]):
         draw.text((PAD, y + 74 + i * 20), line, fill=DIM, font=font(15))
 
-    if record.get("objective") == "plan":
+    objective = str(record.get("objective", ""))
+    if objective == "plan":
         _plan_section(img, draw, record)
-    elif record.get("objective") in (
-        "place_stone_furnace",
-        "fuel_stone_furnace",
-        "load_iron_ore",
-        "load_copper_ore",
-        "go_to_stone_furnace",
-        "wait_for_smelting",
-        "collect_plates",
-    ) or str(record.get("objective", "")).startswith("craft_"):
-        _generic_section(img, draw, record, run_dir)
-    elif record.get("objective") == "check_inventory":
+    elif objective == "check_inventory":
         _inventory_section(img, draw, record, run_dir)
     elif "minimap" in jev:
         _walk_section(img, draw, record, run_dir, name)
-    else:
+    elif objective.startswith("mine_"):
         _mine_section(img, draw, record, run_dir, name)
+    else:
+        _generic_section(img, draw, record, run_dir)
 
     # ---- Stats ----
     y = 914
@@ -366,6 +359,8 @@ def _generic_section(img, draw, record: dict, run_dir: Path):
         ("window", (w - 2 * PAD, 287), (PAD, y + 38)),
         ("side", (330, 284), (PAD + 135, y + 38)),
         ("output", (285, 285), (PAD + 157, y + 38)),
+        ("fuel", (285, 285), (PAD + 157, y + 38)),
+        ("input", (285, 285), (PAD + 157, y + 38)),
         ("crafting", (330, 284), (PAD + 135, y + 38)),  # verify_moved: the slots go in the bars
     ]:
         if name in shots:

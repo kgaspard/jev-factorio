@@ -6,11 +6,11 @@ locate:       Jev boxes the slot holding the wanted item; the cursor goes to tha
 confirm:      Jev reads the hovered slot's tooltip title and the number on its icon. Title is
               the wanted item: record the count. Another item: hover the neighbouring slot on
               the side the box leaned towards (a box once landed one slot off), then record
-              it as absent. Re-boxing doesn't help: Jev puts the box in the same place (O37).
+              it as absent. Re-boxing doesn't help: Jev puts the box in the same place.
               The cursor then leaves the grid so the tooltip can't hide slots.
 close:        press E, and Jev checks it closed.
 The box alone can't tell present from absent (uranium ore boxed the iron ore slot with the
-same confidence as real items), but the tooltip can (O36).
+same confidence as real items), but the tooltip can.
 """
 
 from dataclasses import dataclass

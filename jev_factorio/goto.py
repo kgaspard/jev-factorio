@@ -12,7 +12,7 @@ from PIL import Image
 
 from . import actions, config
 from .actions import Action
-from .state import ITEM_NAMES, GameState
+from .state import ITEM_NAMES, Building, GameState
 
 
 def heading(vx: float, vy: float) -> str:
@@ -25,8 +25,10 @@ def heading(vx: float, vy: float) -> str:
 class GoToBuildingPolicy:
     MAX_MOVES = 60
 
-    def __init__(self, state: GameState, kind: str) -> None:
+    def __init__(self, state: GameState, building: Building | None, kind: str) -> None:
+        """`building`: where to go; None (not placed or not known yet) finishes at once."""
         self.state = state
+        self.target = building
         self.kind = kind
         self.name = ITEM_NAMES.get(kind, kind)
         self.moves = 0
@@ -38,7 +40,7 @@ class GoToBuildingPolicy:
 
     def decide(self, frame: Image.Image, tick: int) -> tuple[Action, dict]:
         action, source, reason = self._decide()
-        b = self.state.building(self.kind)
+        b = self.target
         info = {
             "objective": f"go_to_{self.kind}",
             "jev": {"tokens": 0, "cost_usd": 0.0},  # no Jev call
@@ -50,7 +52,7 @@ class GoToBuildingPolicy:
         return action, info
 
     def _decide(self) -> tuple[Action, str, str]:
-        b = self.state.building(self.kind)
+        b = self.target
         if b is None or b.at is None:
             self.done = self.success = True
             return actions.wait(0), "unknown", f"{self.name} position unknown; look from here"

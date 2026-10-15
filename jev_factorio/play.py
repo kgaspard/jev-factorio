@@ -4,56 +4,115 @@ it is done, the state is updated, and Jev picks again.
 Objectives without a policy yet stop the run, saying which one Jev chose.
 """
 
+import time
 from collections.abc import Callable
 from typing import Any
 
 from PIL import Image
 
-from . import actions
+from . import actions, config
 from .actions import Action
 from .brain import Brain
+from .burner_mining_drill import BurnerMiningDrillPolicy
 from .craft import CraftPolicy
 from .goto import GoToBuildingPolicy
 from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
-from .place import PlaceStoneFurnacePolicy
-from .planner import GOALS, Goal, next_objective_request
+from .place import PlacePolicy, stone_furnace_at_drill
+from .planner import GOALS, Goal, drill_needing_fuel, next_objective_request
 from .sequence import SequencePolicy
 from .state import GameState
 from .stone_furnace import OBJECTIVES as STONE_FURNACE_OBJECTIVES
-from .stone_furnace import StoneFurnacePolicy
+from .stone_furnace import StoneFurnacePolicy, pick_stone_furnace
 from .targets import TARGETS
+from .wait import WaitPolicy
 
 MINE_ORES = {"mine_iron": "iron_ore", "mine_copper": "copper_ore", "mine_coal": "coal"}
 MINE_ORES["mine_stone"] = "stone"
+CRAFTS = [
+    "craft_stone_furnace",
+    "craft_burner_mining_drill",
+    "craft_gears",
+    "craft_lab",
+    "craft_red_science",
+]
 
 
 def _gather(state: GameState, objective: str, goal: Goal):
     # How many to have, a total: the "+1 Coal (N)" text counts the whole inventory.
     target = TARGETS[MINE_ORES[objective]]
-    return SequencePolicy(objective, [WalkPolicy(target), MinePolicy(target, goal.mine[objective])])
+    count = goal.count(goal.mine[objective], state)
+    return SequencePolicy(objective, [WalkPolicy(target), MinePolicy(target, count)])
 
 
 def _stone_furnace(state: GameState, objective: str, goal: Goal):
     # Walk back first: mining may have taken the player far from the furnace.
-    steps = [GoToBuildingPolicy(state, "stone_furnace"), StoneFurnacePolicy(state, objective)]
+    furnace = pick_stone_furnace(state, objective)
+    steps = [
+        GoToBuildingPolicy(state, furnace, "stone_furnace"),
+        StoneFurnacePolicy(state, objective, furnace),
+    ]
     return SequencePolicy(objective, steps, state)
+
+
+def set_up_mining(state: GameState, ore: str) -> SequencePolicy:
+    """Walk to the ore, place a drill on it and a furnace at its output (without moving in
+    between: the furnace's spot is worked out from the drill's), then fuel both. A site left
+    half done carries on: walk back to its drill and do only what is missing."""
+    drill = state.building("burner_mining_drill", ore)
+    furnace = state.building("stone_furnace", ore)
+    steps: list = []
+    if drill is None:
+        steps += [
+            WalkPolicy(TARGETS[ore]),
+            PlacePolicy(
+                state, "burner_mining_drill", config.BURNER_MINING_DRILL_SPOTS, ore=ore, site=ore
+            ),
+        ]
+    else:
+        steps.append(GoToBuildingPolicy(state, drill, "burner_mining_drill"))
+    if furnace is None:
+        steps.append(
+            PlacePolicy(state, "stone_furnace", stone_furnace_at_drill(state, ore), site=ore)
+        )
+    if drill is None or drill.started_at is None:
+        steps.append(
+            BurnerMiningDrillPolicy(state, lambda: state.building("burner_mining_drill", ore))
+        )
+    if furnace is None or not furnace.contents.get("coal"):
+        steps.append(
+            StoneFurnacePolicy(
+                state, "fuel_stone_furnace", lambda: state.building("stone_furnace", ore)
+            )
+        )
+    return SequencePolicy(f"set_up_{ore}_mining", steps, state)
+
+
+def _fuel_drill(state: GameState) -> SequencePolicy:
+    drill = drill_needing_fuel(state, time.time())
+    steps = [
+        GoToBuildingPolicy(state, drill, "burner_mining_drill"),
+        BurnerMiningDrillPolicy(state, drill),
+    ]
+    return SequencePolicy("fuel_burner_mining_drill", steps, state)
 
 
 def _craft(state: GameState, objective: str, goal: Goal):
     item, count = goal.craft[objective]
-    return CraftPolicy(state, item, count)
+    return CraftPolicy(state, item, goal.count(count, state))
 
 
 BUILDERS: dict[str, Callable[[GameState, str, Goal], Any]] = {
     "check_inventory": lambda state, objective, goal: CheckInventoryPolicy(state, goal.check),
-    "place_stone_furnace": lambda state, objective, goal: PlaceStoneFurnacePolicy(state),
+    "place_stone_furnace": lambda state, objective, goal: PlacePolicy(state),
+    "set_up_iron_mining": lambda state, objective, goal: set_up_mining(state, "iron_ore"),
+    "set_up_copper_mining": lambda state, objective, goal: set_up_mining(state, "copper_ore"),
     **{objective: _gather for objective in MINE_ORES},
     **{objective: _stone_furnace for objective in STONE_FURNACE_OBJECTIVES},
-    "craft_gears": _craft,
-    "craft_lab": _craft,
-    "craft_red_science": _craft,
+    "wait": lambda state, objective, goal: WaitPolicy(),
+    "fuel_burner_mining_drill": lambda state, objective, goal: _fuel_drill(state),
+    **{objective: _craft for objective in CRAFTS},
 }
 
 

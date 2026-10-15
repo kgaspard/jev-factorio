@@ -27,7 +27,7 @@ MOUSE_BUTTONS = ("left", "right")
 class Action:
     """kind: 'keys' (hold `keys` together for `duration` s; 0 = tap),
     'click' (press `button` at `target` for `duration` s; 0 = click; `keys`, e.g. ctrl, are
-    held during the click),
+    held during the click; `times` clicks in a row),
     'hover' (move the cursor to `target`), 'press' (move there and keep `button` down until
     a 'release'), 'release', or 'wait'.
     `target` is (x, y) as fractions of the game client area."""
@@ -38,6 +38,7 @@ class Action:
     button: str = "left"
     target: tuple[float, float] | None = None
     duration: float = 0.0
+    times: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -100,8 +101,12 @@ def execute(action: Action, game: Rect) -> bool:
                     pydirectinput.keyDown(k)
                 if action.keys:
                     time.sleep(0.05)  # let the game see the modifier first
-                pydirectinput.mouseDown(button=action.button)
-                time.sleep(action.duration or 0.05)
+                for i in range(action.times):
+                    if i:
+                        pydirectinput.mouseUp(button=action.button)
+                        time.sleep(0.05)
+                    pydirectinput.mouseDown(button=action.button)
+                    time.sleep(action.duration or 0.05)
             finally:
                 pydirectinput.mouseUp(button=action.button)
                 for k in reversed(action.keys):

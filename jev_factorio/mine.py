@@ -8,7 +8,7 @@ verify: hovering opens Factorio's info panel and draws corner brackets round the
         name and yellow: hold right-click. Otherwise: hover the next likeliest side, then
         ask again.
 mining: keep right-click held. Each tick Jev checks the mining progress bar and reads the
-        "+1 Coal (N)" floating text, where N is the total in the inventory (O28). No bar for a
+        "+1 Coal (N)" floating text, where N is the total in the inventory. No bar for a
         couple of ticks: release and aim again. N >= goal: release, done.
 Everything is read from the screen; the walk policy (CP2) is expected to have brought the
 player onto the patch.

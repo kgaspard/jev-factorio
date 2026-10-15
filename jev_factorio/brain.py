@@ -98,7 +98,7 @@ def detour_request(
     return [GAME_CONTEXT, CLOSEUP_CONTEXT, situation, JevImage.from_pil(closeup)], questions
 
 
-# ---- Mining (CP3). These read Factorio's own text and bar, not rock colours (O28). ----
+# ---- Mining (CP3). These read Factorio's own text and bar, not rock colours. ----
 AIM_CONTEXT = (
     "This is a close-up of the area around the player's character, who is at the centre. "
     + GROUND_LEGEND
@@ -161,11 +161,25 @@ def corners_request(cursor: Image.Image) -> tuple[list, dict]:
     }
 
 
-def panel_says_request(panel: Image.Image, title: str) -> tuple[list, dict]:
-    """Does the hovered-entity info panel's title say `title`?"""
-    return [GAME_CONTEXT, PANEL_CONTEXT, JevImage.from_pil(panel)], {
-        "says": Noul(instructions=f"Does the info panel's title say '{title}'?"),
-    }
+ORES = ("iron_ore", "copper_ore", "coal", "stone")
+
+
+def panel_says_request(
+    panel: Image.Image, title: str, resources: bool = False
+) -> tuple[list, dict]:
+    """Does the hovered-entity info panel's title say `title`? With `resources`: which ore a
+    drill's "Expected resources:" line shows. It is an icon, not text: asking whether the
+    panel mentions 'Iron ore' read 0.02 on a drill on iron."""
+    questions: dict = {"says": Noul(instructions=f"Does the info panel's title say '{title}'?")}
+    if resources:
+        questions["resources"] = Choice(
+            instructions="Which item icon follows 'Expected resources:'?",
+            criteria={
+                **{k: f"{ITEM_NAMES[k].capitalize()}: {ICONS[k]}" for k in ORES},
+                "none": "No 'Expected resources' line, or no icon after it",
+            },
+        )
+    return [GAME_CONTEXT, PANEL_CONTEXT, JevImage.from_pil(panel)], questions
 
 
 PREVIEW_CONTEXT = (
@@ -175,10 +189,20 @@ PREVIEW_CONTEXT = (
 )
 
 
-def preview_request(cursor: Image.Image) -> tuple[list, dict]:
+def preview_request(cursor: Image.Image, ore: Target | None = None) -> tuple[list, dict]:
     """Factorio's own placement check. "corners_only" keeps red out-of-reach selection
-    corners from reading as a red building (O41)."""
-    return [GAME_CONTEXT, PREVIEW_CONTEXT, JevImage.from_pil(cursor)], {
+    corners from reading as a red building. With `ore`: is the preview on that ore (a
+    drill only mines what is under it)?"""
+    context: list = [GAME_CONTEXT, PREVIEW_CONTEXT]
+    questions = {}
+    if ore is not None:
+        context.append(GROUND_LEGEND)
+        questions["on_ore"] = Noul(
+            instructions=f"Is the ground under the building preview covered with {ore.name} "
+            f"({ore.ground_colour} rocks)?"
+        )
+    return [*context, JevImage.from_pil(cursor)], {
+        **questions,
         "preview": Choice(
             instructions="What colour is the building preview at the cursor?",
             criteria={
@@ -191,10 +215,13 @@ def preview_request(cursor: Image.Image) -> tuple[list, dict]:
     }
 
 
-STONE_FURNACE_LOOK = (
-    "a small square building of grey stone blocks with yellow sides, about two tiles wide. An "
-    "unfuelled one shows a red triangle warning icon with a fuel pump on it"
-)
+BUILDING_LOOKS = {
+    "stone_furnace": "a small square building of grey stone blocks with yellow sides, about "
+    "two tiles wide. An unfuelled one shows a red triangle warning icon with a fuel pump on it",
+    "burner_mining_drill": "a dark grey square machine about two tiles wide with a drill head "
+    "and a small chimney. An unfuelled one shows a red triangle warning icon with a fuel pump "
+    "on it",
+}
 WINDOW_CONTEXT = (
     "This is the middle of the game screen. Clicking a building opens its window here: the "
     "character's inventory on the left, the building's slots on the right."
@@ -218,18 +245,19 @@ STONE_FURNACE_STATUS = {
 SLOT_COUNTS = {"0": "Empty", **{str(n): None for n in range(1, 101)}}
 
 
-def stone_furnace_box_request(view: Image.Image) -> tuple[list, dict]:
-    """Where is the furnace? The Noul reads low even when the box is right (O43); the info
+def building_box_request(view: Image.Image, kind: str) -> tuple[list, dict]:
+    """Where is the building? The Noul reads low even when the box is right; the info
     panel decides."""
     return [GAME_CONTEXT, "This is the main game view.", JevImage.from_pil(view)], {
-        "box": Box(instructions=f"The stone furnace. It looks like {STONE_FURNACE_LOOK}."),
+        "box": Box(instructions=f"The {ITEM_NAMES[kind]}. It looks like {BUILDING_LOOKS[kind]}."),
     }
 
 
 WINDOWS = {
     "stone_furnace_window": "A window titled 'Stone furnace'",
+    "burner_mining_drill_window": "A window titled 'Burner mining drill'",
     "inventory": "A window titled 'Character' next to one titled 'Crafting'",
-    "nothing": "No window: only the game world",
+    "nothing": "No window: only the game world (buildings standing on the ground don't count)",
 }
 
 
@@ -269,7 +297,7 @@ def stone_furnace_panel_request(panel: Image.Image) -> tuple[list, dict]:
     }
 
 
-def stone_furnace_slot_request(slot: Image.Image) -> tuple[list, dict]:
+def building_slot_request(slot: Image.Image) -> tuple[list, dict]:
     """Only the count: the slot decides what kind of item it is (fuel or ore), and naming the
     icon was unsure (coal 0.52-0.57) while the count read 1.00."""
     return [GAME_CONTEXT, STONE_FURNACE_SLOT_CONTEXT, JevImage.from_pil(slot)], {
@@ -368,7 +396,7 @@ def mining_requests(bar: Image.Image, text: Image.Image, max_count: int) -> dict
     }
 
 
-# ---- Inventory check. Item names come from hover tooltips, not icons (O33). ----
+# ---- Inventory check. Item names come from hover tooltips, not icons. ----
 INVENTORY_CONTEXT = (
     "This is the middle of the game screen. When the character inventory is open, a window "
     "titled 'Character' shows here with a grid of item slots."
@@ -392,7 +420,7 @@ INVENTORY_BOX_CONTEXT = (
 
 def inventory_box_request(panel: Image.Image, item: str) -> tuple[list, dict]:
     """Where is `item`? Paired with a Noul for the panel, but neither is trusted for absence:
-    the hovered tooltip decides (O36, O38)."""
+    the hovered tooltip decides."""
     name = ITEM_NAMES[item]
     return [GAME_CONTEXT, INVENTORY_BOX_CONTEXT, JevImage.from_pil(panel)], {
         "there": Noul(instructions=f"Is there {name} in the inventory?"),
@@ -408,7 +436,7 @@ def inventory_open_request(panel: Image.Image) -> tuple[list, dict]:
 
 def slot_request(slot: Image.Image, extra: list[str] | None = None) -> tuple[list, dict]:
     """Tooltip title as a Choice over all item names, so 'Stone' can't match 'Stone furnace'
-    (a yes/no "does it say 'Stone'?" scored 0.60 on a stone furnace, O36)."""
+    (a yes/no "does it say 'Stone'?" scored 0.60 on a stone furnace)."""
     titles = dict(SLOT_TITLES)
     for k in extra or []:
         titles.setdefault(k, ITEM_NAMES[k].capitalize())

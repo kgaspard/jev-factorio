@@ -1,5 +1,5 @@
 """Things the player can walk to. Descriptions matter: Jev recognises resources from the
-colours we give it, not from knowing Factorio (observations O16, O22)."""
+colours we give it, not from knowing Factorio."""
 
 from dataclasses import dataclass
 
@@ -33,7 +33,7 @@ MINIMAP_LEGEND = (
     + ". Water is solid dark blue."
 )
 # "Clusters" and the boulder/spaceship note cut false "iron on screen" at the crash site from
-# 0.57 to 0.46 (O25).
+# 0.57 to 0.46.
 GROUND_LEGEND = (
     "Resources on the ground look like clusters of rocks: "
     + _listing([f"{t.name} is {t.ground_colour}" for t in TARGETS.values()])

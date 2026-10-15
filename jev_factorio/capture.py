@@ -104,9 +104,9 @@ def slot_closeup(frame: Image.Image, x: int, y: int) -> Image.Image:
     return _upscaled(frame, (x - 22, y - 22, x + 238, y + 98), 3)
 
 
-def stone_furnace_window(frame: Image.Image) -> Image.Image:
+def building_window(frame: Image.Image) -> Image.Image:
     """Where a building's window opens, unscaled (920x440)."""
-    return _upscaled(frame, config.STONE_FURNACE_WINDOW, 1)
+    return _upscaled(frame, config.BUILDING_WINDOW, 1)
 
 
 def stone_furnace_side(frame: Image.Image) -> Image.Image:
@@ -114,8 +114,8 @@ def stone_furnace_side(frame: Image.Image) -> Image.Image:
     return _upscaled(frame, config.STONE_FURNACE_SIDE, 2)
 
 
-def stone_furnace_slot(frame: Image.Image, name: str) -> Image.Image:
-    """One furnace slot ("input", "output", "fuel"), 64x64 upscaled 5x (4x, 256 px, is
-    rejected by the API)."""
-    x, y = config.STONE_FURNACE_SLOTS[name]
+def building_slot(frame: Image.Image, xy: tuple[int, int]) -> Image.Image:
+    """One slot of a building window (a furnace's input, output or fuel), 64x64 upscaled 5x
+    (4x, 256 px, is rejected by the API)."""
+    x, y = xy
     return _upscaled(frame, (x - 32, y - 32, x + 32, y + 32), 5)

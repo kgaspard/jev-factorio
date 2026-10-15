@@ -19,7 +19,7 @@ MINIMAP_RIGHT, MINIMAP_TOP, MINIMAP_SIZE = 17, 152, 224
 # land on it, for about 2,200 more tokens and no extra wait (the main view is slower anyway).
 MINIMAP_JEV_SIZE = 1024
 KILL_SWITCH_VK = 0x23  # End key: stops the loop even while Factorio has focus
-VIEW_TILES = (60, 33.75)  # tiles visible in the main view at default zoom (32 px per tile)
+VIEW_TILES = (40, 22.5)  # tiles visible in the main view (48 px per tile, TILE_PX)
 
 # ---- Recording and live panel ----
 RECORD_FPS = 20
@@ -35,10 +35,10 @@ SCREEN_SEEN_MIN = 0.7  # "<target> on screen" needed to steer by the main-view b
 SCREEN_BOX_MIN_CONFIDENCE = 0.4
 SCREEN_MAX_ANGLE_OFF = 67.5  # main-view box must roughly agree with the minimap direction
 SCREEN_STREAK = 2  # ticks in a row of the above before switching to the main view
-REACH_TILES = 2.5  # hand mining reach is about 2.7 tiles
+REACH_TILES = 1.67  # a main-view box this close counts as in reach (tuned as 80 px)
 STANDING_MIN = 0.7  # "standing on <target>" needed to count a tick as arrived
 ARRIVED_STREAK = 3  # arrived ticks in a row before stopping
-STUCK_MOVED_TILES = 1.0  # a move that shifts the view less than this counts as blocked
+STUCK_MOVED_TILES = 0.67  # a move that shifts the view less than this counts as blocked
 # Close-up sent to Jev when blocked: this region around the player, upscaled 2x.
 CLOSEUP_SIZE = (640, 360)
 
@@ -55,8 +55,8 @@ MINING_BAR_MIN = 0.5
 NO_BAR_TICKS = 2  # ticks without the mining bar before releasing and aiming again
 COUNT_MIN_CONFIDENCE = 0.7  # count choice confidence needed to accept a reading
 MAX_AIMS = 4  # aims that fail the hover check in a row before giving up
-AIM_TILES = 1.5  # how far out from the player to hover on the chosen side
-AIM_UP_TILES = 2.4  # straight up the character sprite is in the way (it is ~2 tiles tall)
+AIM_TILES = 1.0  # how far out from the player to hover on the chosen side
+AIM_UP_TILES = 1.6  # straight up the character sprite is in the way (it is ~1.5 tiles tall)
 AIM_MAX_SIDES = 4  # sides tried (best first) per aim request
 AIM_SIDE_MIN = 0.08  # sides less likely than this aren't tried
 AIM_NONE_MIN = 0.5  # "none within two tiles" this likely: step closer instead
@@ -75,7 +75,7 @@ INVENTORY_SLOT0 = (562, 382)
 INVENTORY_SLOT_PITCH = 40
 INVENTORY_COLUMNS = 10
 INVENTORY_SLOTS = 80
-INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it (O33)
+INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it
 OPEN_MIN = 0.7  # "inventory open" needed to start reading
 INVENTORY_RETRIES = 3  # failed opens/closes before giving up
 SLOT_CANDIDATES = 3  # slots under a box whose tooltips get checked, nearest first
@@ -83,24 +83,41 @@ TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, 
 
 # ---- Placing the furnace (CP4) ----
 # Spots tried for the furnace, in tiles from the player (x right, y down), first fitting one
-# wins. 3 tiles keeps the 2x2 furnace clear of the character.
-PLACE_SPOTS = [(3, 0), (-3, 0), (0, 3), (3, 3), (-3, 3)]
-PREVIEW_GREEN_MIN = 0.8  # green preview needed to click; red and empty cursors read <= 0.02
+# wins. 2 tiles keeps the 2x2 furnace clear of the character.
+PLACE_SPOTS = [(2, 0), (-2, 0), (0, 2), (2, 2), (-2, 2)]
 
 # ---- The furnace window (CP5) ----
-STONE_FURNACE_WINDOW = (500, 270, 1420, 710)  # where the "Stone furnace" window opens
+BUILDING_WINDOW = (500, 270, 1420, 710)  # where a building's window opens (stone furnace)
 STONE_FURNACE_SIDE = (965, 320, 1395, 690)  # its right half: status, ore/output slots, fuel slot
-STONE_FURNACE_GRID_DY = -4  # its character grid sits 4 px higher than the inventory's (O43)
+STONE_FURNACE_GRID_DY = -4  # its character grid sits 4 px higher than the inventory's
 WINDOW_OPEN_MIN = 0.8  # "stone_furnace_window" read 1.00 when open
-WINDOW_CLOSED_MIN = 0.8  # "nothing" read 0.92-0.96 on closed views (day and night)
 # Furnace slot centres. Each is read from its own close-up: on the whole half-window Jev
 # mixed the slots up (fuel 0.53 with 10 coal in it), one slot at a time it reads every count.
 STONE_FURNACE_SLOTS = {"input": (997, 537), "output": (1357, 537), "fuel": (997, 597)}
 STONE_FURNACE_STACK = 50  # ore and coal stack size: what one furnace slot holds
+FUEL_COUNT = 10  # coal put into a building: picked up, then right-clicked in one at a time
 STONE_FURNACE_EMPTY_MAX = 0.2  # P(count 0) at most this = the slot holds something
 STATUS_MIN = 0.8  # furnace status line read; "Working"/"No fuel"/"No ingredients" read 1.00
 SMELT_POLL_SECONDS = 3.0  # between info panel looks while smelting (16 plates take ~51 s)
 SMELT_MAX_POLLS = 40
+
+# ---- Burner mining drills ----
+# Its window: TODO measure. Guessed from the furnace window until a screenshot of one.
+BURNER_MINING_DRILL_SLOTS = {"fuel": (997, 597)}
+BURNER_MINING_DRILL_GRID_DY = -4
+# Spots tried for a drill, in tiles from the player. Its furnace goes 2 tiles above it, so no
+# spot straight below the player (the furnace would land on the character).
+BURNER_MINING_DRILL_SPOTS = [(2, 0), (-2, 0), (2, 2), (-2, 2), (0, -3), (2, -2), (-2, -2)]
+# A drill faces north as placed and drops its ore 1.3 tiles above its centre (0.3 left): a
+# 2x2 furnace centred 2 tiles up covers that spot.
+STONE_FURNACE_AT_DRILL = (0, -2)
+ORE_UNDER_MIN = 0.6  # "the preview stands on <ore>" needed to place a drill there
+BURNER_MINING_DRILL_ORE_PER_SECOND = 0.25
+BURNER_MINING_DRILL_ORE_PER_COAL = 6.67  # 150 kW, 4 s per ore, 4 MJ per coal
+STONE_FURNACE_PLATES_PER_SECOND = 0.3125  # 3.2 s per plate
+WAIT_SECONDS = 30.0  # the `wait` objective
+COLLECT_MIN_PLATES = 10  # collect_* is offered once a drill's furnace has about this many
+WAIT_POLL_SECONDS = 3.0
 
 # ---- Crafting (the panel right of the inventory when E is open) ----
 CRAFTING_PANEL = (965, 320, 1395, 690)  # tabs and recipe grid
@@ -113,8 +130,10 @@ CRAFT_POLL_SECONDS = 1.0  # between inventory looks while the crafting queue run
 CRAFT_EXTRA_POLLS = 5  # looks beyond the recipe's crafting time
 
 # ---- Where things are ----
-TILE_PX = 32  # main view at default zoom
+# Pixels per tile in the main view: the red overlap squares of a blocked furnace preview are
+# 48 px apart, and a 0.25 s move (107 px) is then 2.2 tiles, the character's 9 tiles/s.
+TILE_PX = 48
 ODOMETRY_AREA = (100, 100, 1600, 950)  # game view without the HUD, for visual odometry
-GO_TO_NEAR_TILES = 5.0  # go_to_<building> stops this close (reach is about 10 tiles)
-GO_TO_MOVE_SECONDS = 0.25  # one move: 3.34 tiles
-GO_TO_STUCK_TILES = 0.5  # a move that walked less than this is blocked
+GO_TO_NEAR_TILES = 3.5  # go_to_<building> stops this close (reach is about 10 tiles)
+GO_TO_MOVE_SECONDS = 0.25  # one move: 2.2 tiles
+GO_TO_STUCK_TILES = 0.33  # a move that walked less than this is blocked

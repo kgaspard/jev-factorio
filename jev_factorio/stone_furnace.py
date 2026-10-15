@@ -1,198 +1,115 @@
-"""The furnace objectives. Each starts by finding the furnace and ends with its window closed.
+"""The stone furnace objectives. Each starts by finding the furnace and ends with its window
+closed (the shared steps are in building_window.py).
 
-  fuel_stone_furnace,
+  fuel_stone_furnace:      put 10 coal into the fuel slot.
   load_iron_ore,
-  load_copper_ore:         move coal (fuel) or ore (input) in from the inventory.
+  load_copper_ore:         move all the ore into the input slot (ctrl+click).
   wait_for_smelting:       watch the hover info panel until the ore is used up.
-  collect_plates:          move the plates from the output slot to the inventory.
+  collect_iron_plates,
+  collect_copper_plates:   move the plates from the output slot to the inventory.
 
-find:           Jev boxes the furnace in the game view; the cursor goes to the box centre.
-                Its recorded position isn't trusted: the furnace turned up elsewhere (O43).
-check_hover:    Factorio's info panel must say "Stone furnace". Then left-click to open it.
-verify_open:    Jev says the furnace window is open.
+Which furnace: the one at the drill on that ore for plates, the hand-fed one for ore loaded
+by hand (see `pick_stone_furnace`).
+
 watch:          (wait_for_smelting, no window) the info panel's status line and "Products
                 finished", every few seconds, until the status says no ingredients.
 take,
-verify_taken:   (collect_plates) read the output slot's count, ctrl+click it, and the output
-                slot must then read empty.
-locate,
-confirm:        as in the inventory check, but in the window's character grid (4 px higher):
-                Jev boxes the item's slot; the tooltip of one of the slots under the box
-                (nearest the centre first, up to 3) must name it.
-                Then ctrl+click: Factorio moves all of that item into the furnace slot it fits.
-verify_moved:   Jev reads the count in the fuel slot (coal) or the ore input slot (iron ore)
-                from its own close-up, and the status line. The slot must hold something.
-                If not, box the item again: the inventory re-sorts after a move, so the old
-                slot may now hold something else.
-close,
-verify_closed:  press E until the window is closed.
+verify_taken:   (collect_*) read the output slot's count, ctrl+click it, and the output slot
+                must then read empty. An empty output is no failure: nothing is ready yet.
+verify_moved:   also reads the status line, for the log.
 """
+
+import time
 
 from PIL import Image
 
 from . import actions, config
-from .actions import Action
 from .brain import (
-    Brain,
-    inventory_box_request,
+    building_slot_request,
     panel_says_request,
-    slot_request,
-    stone_furnace_box_request,
     stone_furnace_panel_request,
-    stone_furnace_slot_request,
     stone_furnace_status_request,
-    window_request,
 )
-from .capture import (
-    for_jev,
-    info_panel,
-    inventory_panel,
-    slot_closeup,
-    stone_furnace_side,
-    stone_furnace_slot,
-    stone_furnace_window,
-)
-from .inventory import NEUTRAL, slot_centre, slots_in
+from .building_window import BuildingRef, BuildingWindowPolicy, WindowSpec
+from .capture import building_slot, info_panel, stone_furnace_side
+from .inventory import NEUTRAL
 from .state import PLATES, Building, GameState
 
 KIND = "stone_furnace"
-ITEMS = {"fuel_stone_furnace": "coal", "load_iron_ore": "iron_ore", "load_copper_ore": "copper_ore"}
-OBJECTIVES = [*ITEMS, "wait_for_smelting", "collect_plates"]
-SLOT = {"coal": "fuel", "iron_ore": "input", "copper_ore": "input"}  # where ctrl+click puts it
+ITEMS = {
+    "fuel_stone_furnace": "coal",
+    "load_iron_ore": "iron_ore",
+    "load_copper_ore": "copper_ore",
+    "collect_iron_plates": "iron_plate",
+    "collect_copper_plates": "copper_plate",
+}
+OBJECTIVES = [*ITEMS, "wait_for_smelting"]
+SPEC = WindowSpec(KIND, "Stone furnace", config.STONE_FURNACE_SLOTS, config.STONE_FURNACE_GRID_DY)
+ORES = {v: k for k, v in PLATES.items()}
 
 
-def grid_slot_centre(i: int) -> tuple[int, int]:
-    x, y = slot_centre(i)
-    return x, y + config.STONE_FURNACE_GRID_DY
+def pick_stone_furnace(state: GameState, objective: str) -> Building | None:
+    """The furnace an objective is about. Plates: the furnace at the drill on that ore, else
+    the hand-fed one that smelted it. Ore by hand: the hand-fed furnace already on that ore,
+    else an empty hand-fed one, else the one at the drill on that ore. None: not known yet
+    (found by box)."""
+    furnaces = [b for b in state.buildings if b.kind == KIND]
+    hand = [b for b in furnaces if b.site is None]
+    item = ITEMS.get(objective)
+    ore = ORES.get(item or "", item)
+    at_drill = [b for b in furnaces if ore and b.site == ore]
+    if objective.startswith("collect_") and ore:
+        smelted = [b for b in hand if b.holds([ore, PLATES[ore]])]
+        return next(iter(at_drill + smelted + hand), None)
+    if objective.startswith("load_") and ore:
+        same = [b for b in hand if b.holds([ore, PLATES[ore]])]
+        empty = [b for b in hand if not b.holds(list(PLATES) + list(PLATES.values()))]
+        return next(iter(same + empty + at_drill), None)
+    if objective == "fuel_stone_furnace":
+        unfuelled = [b for b in hand + at_drill if not b.contents.get("coal")]
+        unfuelled += [b for b in furnaces if b.site and not b.contents.get("coal")]
+        return next(iter(unfuelled + hand), None)
+    smelting = [b for b in hand if b.holds(PLATES)]  # wait_for_smelting
+    return next(iter(smelting + hand), None)
 
 
-class StoneFurnacePolicy:
-    def __init__(self, state: GameState, objective: str) -> None:
-        self.state = state
-        self.objective = objective
-        self.item = ITEMS.get(objective) or self._plates_kind()
-        self.brain = Brain()
-        self.phase = "find"
-        self.stone_furnace_px: tuple[float, float] | None = None
-        self.slot: int | None = None
-        self.candidates: list[int] = []  # slots under the box still to check
-        self.held = 0  # the count read off the inventory slot (or the output slot)
+class StoneFurnacePolicy(BuildingWindowPolicy):
+    SPEC = SPEC
+
+    def __init__(self, state: GameState, objective: str, furnace: BuildingRef = None) -> None:
+        super().__init__(state, objective, ITEMS.get(objective, "coal"), furnace)
+        self.taken = 0  # collect_*: plates taken by earlier clicks
         self.polls = 0  # wait_for_smelting panel reads
-        self.taken = 0  # collect_plates: plates taken by earlier clicks
-        self.window_open = False  # as last seen by Jev, or assumed after a failed close
-        self.retries = 0
-        self.total_cost = 0.0
-        self.done = False
-        self.success = False
 
-    def _plates_kind(self) -> str:
-        """What collect_plates takes: the plates of the ore that was smelted (iron if unknown;
-        naming the icon itself was unsure, O44)."""
-        b = self.state.building(KIND)
-        plates = b.holds(PLATES.values()) if b else None
-        ore = b.holds(PLATES) if b else None
-        return plates or (PLATES[ore] if ore else "iron_plate")
-
-    def _stone_furnace(self) -> Building:
-        """This stone furnace in the state, added if the state didn't know it yet."""
-        return self.state.building(KIND) or self.state.add(Building(KIND))
-
-    def paused(self) -> None:
-        # A window may be open; E in cleanup/close handles it. Start over from finding.
-        self.phase, self.retries = "find", 0
-
-    def _tap(self, name: str, key: str) -> Action:
-        return actions.Action(name, "keys", (key,), duration=config.INVENTORY_TAP_SECONDS)
-
-    def _to(self, name: str, xy: tuple[float, float], frame: Image.Image) -> Action:
-        return actions.hover(name, (xy[0] / frame.width, xy[1] / frame.height))
-
-    def decide(self, frame: Image.Image, tick: int) -> tuple[Action, dict]:
-        phase = self.phase
-        images: dict[str, Image.Image] = {}
-        jobs: dict = {}
-        if phase == "find":
-            images["view"] = for_jev(frame)
-            jobs["find"] = stone_furnace_box_request(images["view"])
-        elif phase in ("check_hover", "watch"):
+    def _look(self, phase: str, frame: Image.Image) -> tuple[dict, dict]:
+        images, jobs = super()._look(phase, frame)
+        if phase == "watch":
             images["panel"] = info_panel(frame)
-            jobs["panel"] = panel_says_request(images["panel"], "Stone furnace")
-            if phase == "watch":
-                jobs["watch"] = stone_furnace_panel_request(images["panel"])
+            jobs["panel"] = panel_says_request(images["panel"], SPEC.title)
+            jobs["watch"] = stone_furnace_panel_request(images["panel"])
         elif phase in ("take", "verify_taken"):
-            images["output"] = stone_furnace_slot(frame, "output")
-            jobs["output"] = stone_furnace_slot_request(images["output"])
-        elif phase in ("verify_open", "verify_closed"):
-            images["window"] = stone_furnace_window(frame)
-            jobs["window"] = window_request(images["window"])
-        elif phase == "locate":
-            images["inventory"] = inventory_panel(frame)
-            jobs["locate"] = inventory_box_request(images["inventory"], self.item)
-        elif phase == "confirm":
-            assert self.slot is not None
-            images["slot"] = slot_closeup(frame, *grid_slot_centre(self.slot))
-            jobs["slot"] = slot_request(images["slot"])
+            images["output"] = building_slot(frame, self._slot("output"))
+            jobs["output"] = building_slot_request(images["output"])
         elif phase == "verify_moved":
             images["side"] = stone_furnace_side(frame)
             jobs["status"] = stone_furnace_status_request(images["side"])
-            for name in config.STONE_FURNACE_SLOTS:
-                images[name] = stone_furnace_slot(frame, name)
-                jobs[name] = stone_furnace_slot_request(images[name])
-        look: dict = self.brain.ask(jobs) if jobs else {"tokens": 0, "cost_usd": 0.0}
-        self.total_cost += look["cost_usd"]
-        action, source, reason = getattr(self, f"_{phase}")(look, frame)
-        info = {
-            "objective": self.objective,
-            "phase": phase,
-            "jev": look,
-            "slot": self.slot,
-            "decision": {"source": source, "reason": reason},
-            "total_cost_usd": self.total_cost,
-            "_images": images,
-        }
-        return action, info
+        return images, jobs
 
-    # ---- the furnace in the world ----
-    def _find(self, look, frame):
-        a = look["find"]["answers"]["box"]
-        b = a["box"]
-        self.stone_furnace_px = ((b[0] + b[2]) / 2 * frame.width, (b[1] + b[3]) / 2 * frame.height)
-        self.phase = "watch" if self.objective == "wait_for_smelting" else "check_hover"
-        x, y = self.stone_furnace_px
-        return (
-            self._to("hover_stone_furnace", self.stone_furnace_px, frame),
-            "find",
-            f"furnace boxed at ({x:.0f},{y:.0f}) ({a['confidence'] or 0:.2f})",
-        )
+    def _moved(self, n: int) -> None:
+        b = self._building()
+        if self.item == "coal" and b.started_at is None:
+            b.started_at = time.time()
 
-    def _check_hover(self, look, frame):
-        p = look["panel"]["answers"]["says"]["p"]
-        if p >= config.PANEL_SAYS_MIN:
-            assert self.stone_furnace_px is not None
-            self._stone_furnace().at = self.state.seen_at(self.stone_furnace_px, frame)
-            self.phase, self.retries = "verify_open", 0
-            return self._open_click(frame), "open", f"panel says stone furnace ({p:.2f}); open it"
-        self.phase = "find"
-        return self._retry(f"panel doesn't say stone furnace ({p:.2f})", actions.wait(0))
+    def _after_find(self) -> str:
+        return "watch" if self.objective == "wait_for_smelting" else "check_hover"
 
-    def _open_click(self, frame) -> Action:
-        assert self.stone_furnace_px is not None
-        target = self._to("", self.stone_furnace_px, frame).target
-        return actions.Action(
-            "open_stone_furnace", "click", button="left", target=target, duration=0.1
-        )
+    def _after_open(self) -> str:
+        return "take" if self.objective.startswith("collect_") else "locate"
 
-    def _verify_open(self, look, frame):
-        c = look["window"]["answers"]["which"]
-        p = c["probs"].get("stone_furnace_window", 0.0)
-        if p >= config.WINDOW_OPEN_MIN:
-            self.retries, self.window_open = 0, True
-            self.phase = "take" if self.objective == "collect_plates" else "locate"
-            # Off the window, so no tooltip covers the grid.
-            return self._to("hover_off", NEUTRAL, frame), "opened", f"window open ({p:.2f})"
-        if c["choice"] == "inventory":  # a stray E: close it, then click the furnace again
-            return self._retry("the inventory is open", self._tap("close_window", "e"))
-        return self._retry(f"window not open ({p:.2f})", self._open_click(frame))
+    def _verify_moved(self, look, frame):
+        action, source, reason = super()._verify_moved(look, frame)
+        s = look["status"]["answers"]["status"]
+        return action, source, f"{reason}; status {s['choice']} ({s['confidence'] or 0:.2f})"
 
     # ---- wait_for_smelting: the info panel ----
     def _watch(self, look, frame):
@@ -209,7 +126,7 @@ class StoneFurnacePolicy:
         if p >= config.STATUS_MIN and status in ("no_ingredients", "output_full"):
             # "Products finished" counts the furnace's whole life; plates taken out before
             # are in `taken`. The ore is used up; what's left is plates of its kind.
-            b = self._stone_furnace()
+            b = self._building()
             ore = b.holds(PLATES)
             if ore:
                 b.contents.pop(ore)
@@ -223,16 +140,21 @@ class StoneFurnacePolicy:
             return self._fail(f"{why}; still not done after {self.polls} looks")
         return actions.wait(config.SMELT_POLL_SECONDS), "wait", f"{why}; wait"
 
-    # ---- collect_plates: the output slot ----
+    # ---- collect_*: the output slot ----
     def _output_target(self, frame) -> tuple[float, float]:
-        x, y = config.STONE_FURNACE_SLOTS["output"]
+        x, y = self._slot("output")
         return x / frame.width, y / frame.height
 
     def _take(self, look, frame):
         c = look["output"]["answers"]["count"]
         empty, count = c["probs"].get("0", 0.0), c["choice"]
         if empty > config.STONE_FURNACE_EMPTY_MAX or not count.isdigit():
-            return self._fail(f"output slot reads empty ({empty:.2f}), nothing to collect")
+            self.phase, self.retries = "verify_closed", 0
+            return (
+                self._tap("close_window", "e"),
+                "nothing yet",
+                f"output slot reads empty ({empty:.2f}), nothing to collect yet; close",
+            )
         self.held, self.phase = int(count), "verify_taken"
         return (
             actions.Action(
@@ -247,7 +169,7 @@ class StoneFurnacePolicy:
         empty = c["probs"].get("0", 0.0)
         if empty >= 1 - config.STONE_FURNACE_EMPTY_MAX:
             took = self.taken + self.held
-            self._stone_furnace().took(self.item, took)
+            self._building().took(self.item, took)
             inv = self.state.inventory
             if inv is not None:
                 inv[self.item] = inv.get(self.item, 0) + took
@@ -266,102 +188,3 @@ class StoneFurnacePolicy:
         return self._retry(
             f"output slot still holds {c['choice']} ({1 - empty:.2f})", actions.wait(0)
         )
-
-    # ---- the character grid ----
-    def _locate(self, look, frame):
-        a = look["locate"]["answers"]
-        self.candidates = slots_in(a["box"]["box"])
-        if not self.candidates:
-            return self._fail(f"{self.item} box off the grid")
-        slot = self.slot = self.candidates.pop(0)
-        self.phase = "confirm"
-        rest = f", then {self.candidates}" if self.candidates else ""
-        return (
-            self._to(f"hover_slot_{slot}", grid_slot_centre(slot), frame),
-            "locate",
-            f"{self.item} box on slot {slot}{rest} ({a['box']['confidence'] or 0:.2f})",
-        )
-
-    def _confirm(self, look, frame):
-        a = look["slot"]["answers"]
-        p = a["item"]["probs"].get(self.item, 0.0)
-        if p >= config.TOOLTIP_SAYS_MIN:
-            assert self.slot is not None
-            self.held = int(a["count"]["choice"]) if a["count"]["choice"].isdigit() else 0
-            self.phase = "verify_moved"
-            target = self._to("", grid_slot_centre(self.slot), frame).target
-            return (
-                actions.Action(
-                    f"move_{self.item}", "click", ("ctrl",), "left", target, duration=0.1
-                ),
-                "move",
-                f"slot {self.slot} is {self.held} {self.item} ({p:.2f}); ctrl+click it in",
-            )
-        why = f"slot {self.slot} says {a['item']['choice']}, {self.item} {p:.2f}"
-        if self.candidates:
-            self.slot = self.candidates.pop(0)
-            return (
-                self._to(f"hover_slot_{self.slot}", grid_slot_centre(self.slot), frame),
-                "next slot",
-                f"{why}; try slot {self.slot}",
-            )
-        if self.state.inventory is not None:
-            self.state.inventory[self.item] = 0
-        return self._fail(f"{why}; no {self.item} in the inventory")
-
-    # ---- the furnace half of the window ----
-    def _verify_moved(self, look, frame):
-        s = look["status"]["answers"]["status"]
-        status = f"status {s['choice']} ({s['confidence'] or 0:.2f})"
-        c = look[SLOT[self.item]]["answers"]["count"]
-        empty, count = c["probs"].get("0", 0.0), c["choice"]
-        if empty <= config.STONE_FURNACE_EMPTY_MAX:
-            # Ctrl+click moves the whole stack (both fit in a furnace slot). The slot count
-            # is already lower: the furnace starts burning and smelting at once (16 ore in,
-            # the slot read 15 with one at 4%), so count what left the inventory.
-            # A slot holds one stack (50 ore or coal): ctrl+click moves what fits, the rest
-            # stays. The input is empty when loading (plates are collected first).
-            moved = min(self.held, config.STONE_FURNACE_STACK)
-            self._stone_furnace().put(self.item, moved)
-            if self.state.inventory is not None:
-                self.state.inventory[self.item] = self.held - moved
-            self.phase, self.retries = "verify_closed", 0
-            return (
-                self._tap("close_window", "e"),
-                "moved",
-                f"{SLOT[self.item]} slot holds {count} ({1 - empty:.2f}), {status}; close",
-            )
-        # The click may not have taken. Box the item again (the inventory may have re-sorted).
-        self.phase = "locate"
-        return self._retry(
-            f"{SLOT[self.item]} slot reads empty ({empty:.2f}), {status}",
-            self._to("hover_off", NEUTRAL, frame),
-        )
-
-    def _verify_closed(self, look, frame):
-        c = look["window"]["answers"]["which"]
-        p = c["probs"].get("nothing", 0.0)
-        if p >= config.WINDOW_CLOSED_MIN:
-            self.window_open = False
-            self.done = self.success = True
-            return self._to("hover_off", NEUTRAL, frame), "closed", f"no window open ({p:.2f})"
-        # E closes whichever window it is.
-        why = f"{c['choice']} still open ({c['confidence'] or 0:.2f})"
-        return self._retry(why, self._tap("close_window", "e"))
-
-    # ---- shared ----
-    def _retry(self, why: str, action: Action):
-        self.retries += 1
-        if self.retries > config.INVENTORY_RETRIES:
-            return self._fail(f"{why}; {self.retries - 1} retries")
-        return action, "retry", f"{why} (retry {self.retries}/{config.INVENTORY_RETRIES})"
-
-    def _fail(self, why: str):
-        self.done = True
-        if self.window_open:
-            return self._tap("close_window", "e"), "give up", f"{why}; close the window"
-        return actions.wait(0), "give up", why
-
-    def cleanup(self) -> list[Action]:
-        self.brain.close()
-        return []
