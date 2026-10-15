@@ -1,0 +1,9 @@
+# Environment
+.env
+
+# Python
+.venv/
+__pycache__/
+
+# Run output
+runs/
