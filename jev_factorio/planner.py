@@ -39,6 +39,8 @@ class Goal:
     check: list[str] = field(default_factory=list)  # items check_inventory looks for
     rules: tuple[str, ...] = (RULES,)
     sites: bool = False  # set up mining sites: say whether one can be set up now
+    # The crafts the rest of the goal still takes, for the plates it still needs.
+    todo: Callable[[GameState], list[tuple[str, int]]] | None = None
 
     def count(self, n: Count, state: GameState) -> int:
         return n(state) if callable(n) else n
@@ -75,6 +77,22 @@ def stone_needed(state: GameState) -> int:
 def iron_ore_needed(state: GameState) -> int:
     """Hand-mined iron ore: only for the drills' 9 plates each, less the plates held."""
     return max(5, 9 * drills_missing(state) - _held(state, "iron_plate"))
+
+
+def sites_running(state: GameState) -> bool:
+    return not any(site_kit(state, o) for o in ("iron_ore", "copper_ore"))
+
+
+def coal_needed(state: GameState) -> int:
+    """45 to set up both sites (10 each for 2 drills and 2 furnaces, 5 spare); once they run,
+    only a drill's refuel."""
+    return config.FUEL_COUNT if sites_running(state) else 45
+
+
+def red_science_todo(state: GameState) -> list[tuple[str, int]]:
+    packs = 10 - _held(state, "automation_science_pack")
+    todo = [] if _held(state, "lab") else [("lab", 1)]
+    return todo + ([("automation_science_pack", packs)] if packs > 0 else [])
 
 
 GOALS = {
@@ -124,7 +142,7 @@ GOALS = {
         {
             "mine_iron": iron_ore_needed,
             "mine_copper": 10,
-            "mine_coal": 45,
+            "mine_coal": coal_needed,
             "mine_stone": stone_needed,
         },
         {
@@ -149,6 +167,7 @@ GOALS = {
         ],
         (RULES, DRILL_RULES),
         sites=True,
+        todo=red_science_todo,
     ),
 }
 
@@ -214,7 +233,29 @@ def readiness(state: GameState, goal: Goal) -> str:
         if can
         else "With the inventory as it is, nothing on the plan can be crafted or set up yet."
     )
-    return " ".join([text, *sites_missing(state)]) if goal.sites else text
+    if not goal.sites:
+        return text
+    return " ".join([text, *sites_missing(state), *still_needed(state, goal)])
+
+
+def still_needed(state: GameState, goal: Goal) -> list[str]:
+    """Once both sites run: the plates the rest of the goal needs beyond the inventory."""
+    if not goal.todo or not sites_running(state):
+        return []
+    now = time.time()
+    lines = []
+    for plate, n in plates_short(state, goal).items():
+        name = ITEM_NAMES[plate]
+        if n <= 0:
+            lines.append(f"The rest of the goal needs no more {name}s than the inventory holds.")
+        elif ore_short(state, goal, ORES[plate], now) <= 0:
+            lines.append(
+                f"The rest of the goal needs {_plural(n, plate)} more; its furnace and drill "
+                "already hold or will make them, so no more coal is needed for them."
+            )
+        else:
+            lines.append(f"The rest of the goal needs {_plural(n, plate)} more.")
+    return lines
 
 
 def sites_missing(state: GameState) -> list[str]:
@@ -270,14 +311,45 @@ def site_kit(state: GameState, ore: str) -> dict[str, int]:
     return kit
 
 
-def drill_needing_fuel(state: GameState, now: float) -> Building | None:
-    """A drill with about 2 coal or less left (13 ore), the emptiest first."""
+def plates_short(state: GameState, goal: Goal) -> dict[str, int]:
+    """Plates the rest of the goal needs beyond those in the inventory, by kind."""
+    have = dict(state.inventory or {})
+    short: dict[str, int] = {}
+    for item, n in goal.todo(state) if goal.todo else []:
+        for k, m in missing_for(item, n, have).items():
+            short[k] = short.get(k, 0) + m
+        plan = plan_craft(item, n, have)
+        have = {k: max(0, m - plan.used.get(k, 0)) for k, m in have.items()}
+        for k, m in plan.extra.items():
+            have[k] = have.get(k, 0) + m
+    return {p: short.get(p, 0) for p in ORES}
+
+
+def ore_short(state: GameState, goal: Goal, ore: str, now: float) -> int:
+    """Plates of `ore` still to come from its site: what the goal needs beyond the inventory,
+    less what waits in the site's furnace and what the drill's coal will still mine. With
+    nothing short, mining coal for the drill wastes time (it went for coal with 33 copper
+    plates waiting and the gears for all 10 packs held)."""
+    need = plates_short(state, goal)[PLATES[ore]]
+    drill = state.building("burner_mining_drill", ore)
+    furnace = state.building("stone_furnace", ore)
+    if furnace is not None:
+        need -= state.plates_ready(furnace, now)
+    if drill is not None and drill.started_at is not None:
+        need -= int(max(0.0, drill.fuel_for() - drill.mined(now)))
+    return max(0, need)
+
+
+def drill_needing_fuel(state: GameState, now: float, goal: Goal | None = None) -> Building | None:
+    """A drill with about 2 coal or less left (13 ore), the emptiest first; with a goal, only
+    one whose ore the goal still needs."""
     low = [
         b
         for b in state.buildings
         if b.kind == "burner_mining_drill"
         and b.started_at is not None
         and b.fuel_for() - b.mined(now) <= 2 * config.BURNER_MINING_DRILL_ORE_PER_COAL
+        and (goal is None or b.site is None or ore_short(state, goal, b.site, now) > 0)
     ]
     return min(low, key=lambda b: b.fuel_for() - b.mined(now), default=None)
 
@@ -291,9 +363,23 @@ def available(state: GameState, goal: Goal) -> dict[str, str]:
     furnaces = [b for b in state.buildings if b.kind == "stone_furnace"]
     drills = [b for b in state.buildings if b.kind == "burner_mining_drill"]
 
+    running = goal.sites and sites_running(state)
+
     def ok(objective: str) -> bool:
-        if objective in ("check_inventory", "done") or objective in goal.mine:
+        if objective == "check_inventory":
             return True
+        if objective == "done":
+            # With nothing short it said "done" (0.36-0.51) with the packs still to craft.
+            return not goal.todo or not goal.todo(state)
+        if objective in goal.mine:
+            if not running:
+                return True
+            # Both sites run: hand-mining only coal, for a drill whose ore is still needed.
+            return (
+                objective == "mine_coal"
+                and have.get("coal", 0) < config.FUEL_COUNT
+                and bool(drill_needing_fuel(state, now, goal))
+            )
         if objective in goal.craft:
             item, count = goal.craft[objective]
             n = goal.count(count, state)  # 0: none needed (a drill would eat a site's furnace)
@@ -310,7 +396,7 @@ def available(state: GameState, goal: Goal) -> dict[str, str]:
         if objective == "fuel_stone_furnace":
             return have.get("coal", 0) > 0 and any(not b.contents.get("coal") for b in furnaces)
         if objective == "fuel_burner_mining_drill":
-            return have.get("coal", 0) > 0 and bool(drill_needing_fuel(state, now))
+            return have.get("coal", 0) > 0 and bool(drill_needing_fuel(state, now, goal))
         if objective.startswith("load_"):
             return have.get(objective.removeprefix("load_"), 0) > 0 and bool(furnaces)
         if objective == "wait_for_smelting":
@@ -318,18 +404,27 @@ def available(state: GameState, goal: Goal) -> dict[str, str]:
         if objective.startswith("collect_"):
             plate = objective.removeprefix("collect_").removesuffix("s")
             ore = ORES[plate]
+            # 10 plates a trip, or fewer when that is all the goal still needs
+            enough = config.COLLECT_MIN_PLATES
+            if goal.todo:
+                enough = max(1, min(enough, plates_short(state, goal)[plate]))
             return any(
-                (b.site == ore and state.plates_ready(b, now) >= config.COLLECT_MIN_PLATES)
+                (b.site == ore and state.plates_ready(b, now) >= enough)
                 or (b.site is None and b.contents.get(plate, 0) > 0)
                 for b in furnaces
             )
         if objective == "wait":
             # Only once both sites run: before that there is always stone, coal or a craft
             # to get on with (offered earlier, it waited instead of mining stone).
-            return not any(site_kit(state, o) for o in ("iron_ore", "copper_ore"))
+            return sites_running(state)
         return False
 
-    return {k: v for k, v in OBJECTIVES.items() if ok(k)}
+    offered = {k: v for k, v in OBJECTIVES.items() if ok(k)}
+    if set(offered) - {"check_inventory", "done", "wait"}:
+        # Something to do: waiting then only loses time (0.43-0.49 against collecting 33
+        # copper plates that were waiting).
+        offered.pop("wait", None)
+    return offered
 
 
 def next_objective_request(state: GameState, goal: Goal) -> tuple[list, dict]:

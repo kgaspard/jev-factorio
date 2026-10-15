@@ -1,6 +1,7 @@
 """Screenshots of the Factorio client area."""
 
 import mss
+import numpy as np
 from PIL import Image, ImageDraw
 
 from . import config
@@ -19,16 +20,26 @@ class Screen:
         self._sct.close()
 
 
+def minimap_shift(frame: Image.Image) -> int:
+    """How far the minimap panel sits below where it was measured: its top border is the first
+    row across the minimap that is flat grey (94) over a darker one (68). 0 if not found."""
+    right = frame.width - config.MINIMAP_RIGHT
+    lo, hi = config.MINIMAP_BORDER_SEARCH
+    rows = np.asarray(frame.crop((right - config.MINIMAP_SIZE, lo, right, hi + 1)).convert("L"))
+    rows = rows.astype(np.int16)
+    mean, std = rows.mean(axis=1), rows.std(axis=1)
+    for i in range(len(rows) - 1):
+        if std[i] < 6 and 85 <= mean[i] <= 105 and std[i + 1] < 6 and 55 <= mean[i + 1] <= 80:
+            return lo + i - config.MINIMAP_BORDER_Y
+    return 0
+
+
 def minimap(frame: Image.Image) -> Image.Image:
     """Crop the minimap (centred on the player), upscale it with crisp pixels and mark the
     player with a red cross."""
     right = frame.width - config.MINIMAP_RIGHT
-    box = (
-        right - config.MINIMAP_SIZE,
-        config.MINIMAP_TOP,
-        right,
-        config.MINIMAP_TOP + config.MINIMAP_SIZE,
-    )
+    top = config.MINIMAP_TOP + minimap_shift(frame)
+    box = (right - config.MINIMAP_SIZE, top, right, top + config.MINIMAP_SIZE)
     size = (config.MINIMAP_JEV_SIZE, config.MINIMAP_JEV_SIZE)
     img = frame.crop(box).resize(size, Image.Resampling.NEAREST)
     draw = ImageDraw.Draw(img)
@@ -76,7 +87,8 @@ def _upscaled(frame: Image.Image, box: tuple[int, int, int, int], factor: int) -
 def info_panel(frame: Image.Image) -> Image.Image:
     """The entity info panel under the minimap, upscaled 3x (the API rejects small images)."""
     left, top, bottom = config.INFO_PANEL
-    return _upscaled(frame, (frame.width - left, top, frame.width, bottom), 3)
+    dy = minimap_shift(frame)
+    return _upscaled(frame, (frame.width - left, top + dy, frame.width, bottom + dy), 3)
 
 
 def progress_bar(frame: Image.Image) -> Image.Image:

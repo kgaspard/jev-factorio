@@ -89,7 +89,8 @@ class StoneFurnacePolicy(BuildingWindowPolicy):
             jobs["watch"] = stone_furnace_panel_request(images["panel"])
         elif phase in ("take", "verify_taken"):
             images["output"] = building_slot(frame, self._slot("output"))
-            jobs["output"] = building_slot_request(images["output"])
+            kinds = list(PLATES.values()) if phase == "take" else None
+            jobs["output"] = building_slot_request(images["output"], kinds)
         elif phase == "verify_moved":
             images["side"] = stone_furnace_side(frame)
             jobs["status"] = stone_furnace_status_request(images["side"])
@@ -155,6 +156,9 @@ class StoneFurnacePolicy(BuildingWindowPolicy):
                 "nothing yet",
                 f"output slot reads empty ({empty:.2f}), nothing to collect yet; close",
             )
+        other = self._other_site(look["output"]["answers"]["item"]["choice"])
+        if other is not None:
+            return self._fail(other)
         self.held, self.phase = int(count), "verify_taken"
         return (
             actions.Action(
@@ -163,6 +167,21 @@ class StoneFurnacePolicy(BuildingWindowPolicy):
             "take",
             f"output slot holds {count} ({1 - empty:.2f}); ctrl+click it out",
         )
+
+    def _other_site(self, plate: str) -> str | None:
+        """The output holds the other site's plates: this is that site's furnace (they look the
+        same; after a drift it collected 11 iron plates as copper). The player is then where
+        that furnace is, not this one: move the player's position by the gap between them."""
+        b = self._building()
+        if plate == self.item or plate not in PLATES.values() or b.at is None:
+            return None
+        ore = ORES[plate]
+        there = self.state.building(SPEC.kind, ore)
+        if there is None or there.at is None:
+            return f"output holds {plate}, not {self.item}"
+        x, y = self.state.player_at
+        self.state.player_at = (x + there.at[0] - b.at[0], y + there.at[1] - b.at[1])
+        return f"output holds {plate}: this is the {ore} site's furnace; position corrected"
 
     def _verify_taken(self, look, frame):
         c = look["output"]["answers"]["count"]

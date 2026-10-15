@@ -15,6 +15,11 @@ GAME_CLIENT_SIZE = (1920, 1080)  # windowed client area (width, height); panel g
 # Minimap position inside the client area, measured at 1920x1080 with default UI scale:
 # offset of its right edge from the client's right edge, its top, and its side length.
 MINIMAP_RIGHT, MINIMAP_TOP, MINIMAP_SIZE = 17, 152, 224
+# The minimap panel's top border (a flat grey line) was at y=136 when MINIMAP_TOP was measured.
+# An extra row of buttons above it showed up mid-game and pushed it (and the info panel
+# under it) 16 px down, so the border is found in every frame and everything shifts with it.
+MINIMAP_BORDER_Y = 136
+MINIMAP_BORDER_SEARCH = (100, 300)  # rows to look for it in
 # Upscaled before sending. At 448 px Jev's boxes missed the patch (too high); at 1024 px they
 # land on it, for about 2,200 more tokens and no extra wait (the main view is slower anyway).
 MINIMAP_JEV_SIZE = 1024
@@ -121,6 +126,9 @@ WAIT_POLL_SECONDS = 3.0
 
 # ---- Crafting (the panel right of the inventory when E is open) ----
 CRAFTING_PANEL = (965, 320, 1395, 690)  # tabs and recipe grid
+# The recipe grid alone: with the tabs in the crop, a recipe box landed on the Production
+# tab's icon (0.07-0.15); without them it found the stone furnace (0.30-0.44).
+RECIPE_PANEL = (965, 398, 1395, 690)
 CRAFT_TAB0 = (1018, 352)  # first of 4 tabs: logistics, production, intermediate products, combat
 CRAFT_TAB_PITCH = 106
 RECIPE_SLOT0 = (998, 421)

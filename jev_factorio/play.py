@@ -89,8 +89,8 @@ def set_up_mining(state: GameState, ore: str) -> SequencePolicy:
     return SequencePolicy(f"set_up_{ore}_mining", steps, state)
 
 
-def _fuel_drill(state: GameState) -> SequencePolicy:
-    drill = drill_needing_fuel(state, time.time())
+def _fuel_drill(state: GameState, goal: Goal) -> SequencePolicy:
+    drill = drill_needing_fuel(state, time.time(), goal)
     steps = [
         GoToBuildingPolicy(state, drill, "burner_mining_drill"),
         BurnerMiningDrillPolicy(state, drill),
@@ -111,7 +111,7 @@ BUILDERS: dict[str, Callable[[GameState, str, Goal], Any]] = {
     **{objective: _gather for objective in MINE_ORES},
     **{objective: _stone_furnace for objective in STONE_FURNACE_OBJECTIVES},
     "wait": lambda state, objective, goal: WaitPolicy(),
-    "fuel_burner_mining_drill": lambda state, objective, goal: _fuel_drill(state),
+    "fuel_burner_mining_drill": lambda state, objective, goal: _fuel_drill(state, goal),
     **{objective: _craft for objective in CRAFTS},
 }
 

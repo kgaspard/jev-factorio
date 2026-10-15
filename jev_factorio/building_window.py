@@ -200,7 +200,14 @@ class BuildingWindowPolicy:
         p = look["panel"]["answers"]["says"]["p"]
         if p >= config.PANEL_SAYS_MIN:
             assert self.px is not None
-            self._building().at = self.state.seen_at(self.px, frame)
+            b, seen = self._building(), self.state.seen_at(self.px, frame)
+            if b.at is None:
+                b.at = seen
+            else:
+                # Buildings don't move: where it was seen corrects the player's position (by
+                # odometry), so drift doesn't build up across walks.
+                x, y = self.state.player_at
+                self.state.player_at = (x + b.at[0] - seen[0], y + b.at[1] - seen[1])
             self.phase, self.retries = "verify_open", 0
             return (
                 self._open_click(frame),

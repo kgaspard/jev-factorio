@@ -122,8 +122,21 @@ TAB_LOOK = {
 }
 TAB_GRID = Grid(config.CRAFTING_PANEL, config.CRAFT_TAB0, 4, 4, config.CRAFT_TAB_PITCH)
 RECIPE_GRID = Grid(
-    config.CRAFTING_PANEL, config.RECIPE_SLOT0, config.RECIPE_COLUMNS, config.RECIPE_SLOTS
+    config.RECIPE_PANEL, config.RECIPE_SLOT0, config.RECIPE_COLUMNS, config.RECIPE_SLOTS
 )
+
+
+def around(slots: list[int], grid: Grid) -> list[int]:
+    """The slots next to `slots` (left, right, above, below), the first slot's first: a
+    recipe box landed a row off the stone furnace with either crop."""
+    out: list[int] = []
+    for s in slots:
+        row, col = divmod(s, grid.columns)
+        for r, k in ((row, col - 1), (row, col + 1), (row - 1, col), (row + 1, col)):
+            i = r * grid.columns + k
+            if 0 <= k < grid.columns and 0 <= i < grid.slots and i not in slots + out:
+                out.append(i)
+    return out
 
 
 class CraftPolicy:
@@ -180,7 +193,7 @@ class CraftPolicy:
             images["slot"] = slot_closeup(frame, *TAB_GRID.centre(self.slot))
             jobs["tab"] = tab_request(images["slot"])
         elif phase == "recipe_locate":
-            images["crafting"] = _upscaled(frame, config.CRAFTING_PANEL, 2)
+            images["crafting"] = _upscaled(frame, config.RECIPE_PANEL, 2)
             what = f"The {ITEM_NAMES[self.item]} recipe: {ICONS[self.item]}"
             jobs["locate"] = crafting_box_request(images["crafting"], what)
         elif phase == "recipe_confirm":
@@ -267,7 +280,8 @@ class CraftPolicy:
         p = c["probs"].get(self.recipe.tab, 0.0)
         assert self.slot is not None
         if p >= config.TOOLTIP_SAYS_MIN:
-            self.phase, self.retries = "recipe_locate", 0
+            # retries not reset: a failed recipe goes back here, and must count
+            self.phase = "recipe_locate"
             return (
                 self._click("select_tab", TAB_GRID.centre(self.slot), frame),
                 "tab",
@@ -282,7 +296,10 @@ class CraftPolicy:
 
     # ---- the recipe ----
     def _recipe_locate(self, look, frame):
-        return self._boxed(look, RECIPE_GRID, "recipe_confirm", "recipe", frame)
+        result = self._boxed(look, RECIPE_GRID, "recipe_confirm", "recipe", frame)
+        assert self.slot is not None
+        self.candidates += around([self.slot, *self.candidates], RECIPE_GRID)
+        return result
 
     def _recipe_confirm(self, look, frame):
         a = look["recipe"]["answers"]

@@ -297,12 +297,22 @@ def stone_furnace_panel_request(panel: Image.Image) -> tuple[list, dict]:
     }
 
 
-def building_slot_request(slot: Image.Image) -> tuple[list, dict]:
-    """Only the count: the slot decides what kind of item it is (fuel or ore), and naming the
-    icon was unsure (coal 0.52-0.57) while the count read 1.00."""
-    return [GAME_CONTEXT, STONE_FURNACE_SLOT_CONTEXT, JevImage.from_pil(slot)], {
+def building_slot_request(slot: Image.Image, kinds: list[str] | None = None) -> tuple[list, dict]:
+    """The count, and with `kinds` which of those items it is. Mostly the slot decides the kind
+    (fuel or ore; naming the coal icon was unsure, 0.52-0.57, while the count read 1.00), but
+    the two sites' furnaces look the same: only their plates tell them apart."""
+    questions: dict = {
         "count": Choice(instructions="What number is on the item icon?", criteria=SLOT_COUNTS),
     }
+    if kinds:
+        questions["item"] = Choice(
+            instructions="Which item is in the slot?",
+            criteria={
+                **{k: f"{ITEM_NAMES[k].capitalize()}: {ICONS[k]}" for k in kinds},
+                "none": "The slot is empty",
+            },
+        )
+    return [GAME_CONTEXT, STONE_FURNACE_SLOT_CONTEXT, JevImage.from_pil(slot)], questions
 
 
 CRAFT_CONTEXT = (
