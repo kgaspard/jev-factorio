@@ -4,6 +4,8 @@ Jev (a vision model behind the Typesafe SDK) plays Factorio from screenshots alo
 it looks at the screen, decides, and presses keys or moves the mouse. The current goal: from a
 fresh freeplay game, craft 10 automation science packs (red science).
 
+**See it in action:** [Jev reaches 10 red science in one run for $0.11](https://youtu.be/8x3GphnIgWk)
+
 ## Requirements
 
 - Windows (input and window handling use the Win32 API).
