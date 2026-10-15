@@ -47,13 +47,18 @@ GOALS = {
         ],
     ),
     "red_science": Goal(
-        "Goal: have 10 automation science packs (red science). One pack is crafted from 1 "
-        "copper plate and 1 iron gear wheel; a gear is crafted from 2 iron plates. So the "
-        "player needs one stone furnace placed on the ground, 20 iron ore, 10 copper ore and "
-        "a few coal, then 10 gears, then the 10 packs.",
-        {"mine_iron": 20, "mine_copper": 10, "mine_coal": 5, "mine_stone": 5},
+        "Goal: have 10 automation science packs (red science). Their recipe is locked until "
+        "the player crafts a lab: crafting one researches 'Automation science pack'. A lab is "
+        "crafted from 10 electronic circuits, 10 iron gear wheels and 4 transport belts; "
+        "crafting it by hand makes those parts too, from 36 iron plates and 15 copper plates. "
+        "Then each pack is crafted from 1 copper plate and 1 iron gear wheel (2 iron plates): "
+        "20 iron plates and 10 copper plates for 10 packs. So the player needs one stone "
+        "furnace placed on the ground, 56 iron ore, 25 copper ore and about 10 coal; craft the "
+        "lab first, then the packs. A furnace slot holds at most 50 ore.",
+        {"mine_iron": 56, "mine_copper": 25, "mine_coal": 10, "mine_stone": 5},
         {
             "craft_gears": ("iron_gear_wheel", 10),
+            "craft_lab": ("lab", 1),
             "craft_red_science": ("automation_science_pack", 10),
         },
         [
@@ -82,6 +87,7 @@ OBJECTIVES = {
     "wait_for_smelting": "Wait while the furnace smelts the ore",
     "collect_plates": "Take the plates out of the furnace",
     "craft_gears": "Craft iron gear wheels from iron plates",
+    "craft_lab": "Craft a lab (makes its circuits, gears and belts from plates)",
     "craft_red_science": "Craft automation science packs from copper plates and gears",
     "done": "The goal is reached",
 }

@@ -96,6 +96,7 @@ WINDOW_CLOSED_MIN = 0.8  # "nothing" read 0.92-0.96 on closed views (day and nig
 # Furnace slot centres. Each is read from its own close-up: on the whole half-window Jev
 # mixed the slots up (fuel 0.53 with 10 coal in it), one slot at a time it reads every count.
 STONE_FURNACE_SLOTS = {"input": (997, 537), "output": (1357, 537), "fuel": (997, 597)}
+STONE_FURNACE_STACK = 50  # ore and coal stack size: what one furnace slot holds
 STONE_FURNACE_EMPTY_MAX = 0.2  # P(count 0) at most this = the slot holds something
 STATUS_MIN = 0.8  # furnace status line read; "Working"/"No fuel"/"No ingredients" read 1.00
 SMELT_POLL_SECONDS = 3.0  # between info panel looks while smelting (16 plates take ~51 s)

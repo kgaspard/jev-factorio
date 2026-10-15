@@ -52,6 +52,7 @@ BUILDERS: dict[str, Callable[[GameState, str, Goal], Any]] = {
     **{objective: _gather for objective in MINE_ORES},
     **{objective: _stone_furnace for objective in STONE_FURNACE_OBJECTIVES},
     "craft_gears": _craft,
+    "craft_lab": _craft,
     "craft_red_science": _craft,
 }
 

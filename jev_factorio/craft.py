@@ -42,15 +42,66 @@ from .state import ICONS, ITEM_NAMES, GameState
 class Recipe:
     tab: str
     ingredients: dict[str, int]
-    seconds: float  # crafting time for one
+    seconds: float  # crafting time for one craft
+    makes: int = 1  # items per craft
 
 
 RECIPES = {
     "iron_gear_wheel": Recipe("intermediate_products", {"iron_plate": 2}, 0.5),
+    "copper_cable": Recipe("intermediate_products", {"copper_plate": 1}, 0.5, makes=2),
+    "electronic_circuit": Recipe(
+        "intermediate_products", {"iron_plate": 1, "copper_cable": 3}, 0.5
+    ),
+    "transport_belt": Recipe("logistics", {"iron_gear_wheel": 1, "iron_plate": 1}, 0.5, makes=2),
+    # Crafting a lab researches "Automation science pack" (a 2.0 trigger technology, O54).
+    "lab": Recipe(
+        "production",
+        {"electronic_circuit": 10, "iron_gear_wheel": 10, "transport_belt": 4},
+        2.0,
+    ),
     "automation_science_pack": Recipe(
         "intermediate_products", {"copper_plate": 1, "iron_gear_wheel": 1}, 5.0
     ),
 }
+
+
+@dataclass
+class CraftPlan:
+    used: dict[str, int]  # taken from the inventory
+    extra: dict[str, int]  # made beyond what was needed (a cable craft makes 2), left over
+    seconds: float  # total crafting time, intermediates included
+
+
+def plan_craft(item: str, count: int, have: dict[str, int]) -> CraftPlan:
+    """What crafting `count` of `item` by hand takes, as Factorio does it: ingredients already
+    in the inventory are used first, and missing intermediates are crafted from theirs."""
+    have = dict(have)
+    plan = CraftPlan({}, {}, 0.0)
+
+    def craft(it: str, n: int) -> None:
+        r = RECIPES[it]
+        crafts = math.ceil(n / r.makes)
+        plan.seconds += crafts * r.seconds
+        if crafts * r.makes > n:
+            plan.extra[it] = plan.extra.get(it, 0) + crafts * r.makes - n
+        for ing, k in r.ingredients.items():
+            need(ing, k * crafts)
+
+    def need(it: str, n: int) -> None:
+        take = min(have.get(it, 0), n)
+        if take:
+            have[it] -= take
+            plan.used[it] = plan.used.get(it, 0) + take
+        if n > take:
+            if it in RECIPES:
+                craft(it, n - take)
+            else:  # a raw material that's missing; the craftable count should have caught it
+                plan.used[it] = plan.used.get(it, 0) + n - take
+
+    craft(item, count)
+    return plan
+
+
 # The tabs' tooltip names and what their icons look like.
 TAB_NAMES = {
     "logistics": "Logistics",
@@ -84,8 +135,9 @@ class CraftPolicy:
         self.clicks = 0
         held = (state.inventory or {}).get(item, 0)
         self.target = held + count  # the item count to see in the inventory
+        self.plan = plan_craft(item, count, state.inventory or {})
         self.polls = 0
-        self.max_polls = math.ceil(count * self.recipe.seconds / config.CRAFT_POLL_SECONDS)
+        self.max_polls = math.ceil(self.plan.seconds / config.CRAFT_POLL_SECONDS)
         self.max_polls += config.CRAFT_EXTRA_POLLS
         self.inventory_open = False
         self.retries = 0
@@ -277,8 +329,10 @@ class CraftPolicy:
                 inv = self.state.inventory
                 if inv is not None:
                     inv[self.item] = n
-                    for ing, k in self.recipe.ingredients.items():
-                        inv[ing] = max(0, inv.get(ing, 0) - k * self.count)
+                    for it, k in self.plan.used.items():
+                        inv[it] = max(0, inv.get(it, 0) - k)
+                    for it, k in self.plan.extra.items():
+                        inv[it] = inv.get(it, 0) + k
                 self.phase, self.retries = "close", 0
                 return (
                     self._to("hover_off", NEUTRAL, frame),

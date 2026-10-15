@@ -319,9 +319,12 @@ class StoneFurnacePolicy:
             # Ctrl+click moves the whole stack (both fit in a furnace slot). The slot count
             # is already lower: the furnace starts burning and smelting at once (16 ore in,
             # the slot read 15 with one at 4%), so count what left the inventory.
-            self._stone_furnace().put(self.item, self.held)
+            # A slot holds one stack (50 ore or coal): ctrl+click moves what fits, the rest
+            # stays. The input is empty when loading (plates are collected first).
+            moved = min(self.held, config.STONE_FURNACE_STACK)
+            self._stone_furnace().put(self.item, moved)
             if self.state.inventory is not None:
-                self.state.inventory[self.item] = 0
+                self.state.inventory[self.item] = self.held - moved
             self.phase, self.retries = "verify_closed", 0
             return (
                 self._tap("close_window", "e"),
