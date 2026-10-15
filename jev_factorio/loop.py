@@ -5,6 +5,8 @@ Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --secon
       uv run python -m jev_factorio.loop --policy gather --target iron_ore --count 16
       uv run python -m jev_factorio.loop --policy check_inventory --find stone_furnace,uranium_ore
       uv run python -m jev_factorio.loop --policy play --seconds 300
+      uv run python -m jev_factorio.loop --policy fuel_furnace   (or load_ore,
+                                         wait_for_smelting, collect_plates)
 The loop brings Factorio to the front itself and pauses whenever it loses focus.
 Press End (or Ctrl+C in the console) to stop.
 The live panel opens right of the game and the game area is recorded to the run folder.
@@ -23,6 +25,8 @@ from PIL import Image
 from . import actions, config
 from .actions import Action
 from .capture import Screen
+from .furnace import OBJECTIVES as FURNACE_OBJECTIVES
+from .furnace import StoneFurnacePolicy
 from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
@@ -70,6 +74,10 @@ class RandomPolicy:
         return [actions.tap("toggle_inventory", "e")] if self.inventory_open else []
 
 
+def _stone_furnace(objective: str) -> Callable[[argparse.Namespace], Policy]:
+    return lambda args: StoneFurnacePolicy(GameState(), objective)
+
+
 POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
     "random": lambda args: RandomPolicy(),
     "walk": lambda args: WalkPolicy(TARGETS[args.target]),
@@ -80,6 +88,7 @@ POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
     ),
     "play": lambda args: PlayPolicy(GameState()),
     "place_furnace": lambda args: PlaceFurnacePolicy(GameState()),
+    **{o: _stone_furnace(o) for o in FURNACE_OBJECTIVES},
     "check_inventory": lambda args: CheckInventoryPolicy(
         GameState(), args.find.split(",") if args.find else None
     ),

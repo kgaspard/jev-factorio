@@ -52,6 +52,27 @@ def slot_at(box: list[float]) -> tuple[int | None, int | None]:
     return row * config.INVENTORY_COLUMNS + col, row * config.INVENTORY_COLUMNS + ncol
 
 
+def slots_in(box: list[float]) -> list[int]:
+    """Slots to check for a box given as fractions of the inventory panel crop: every slot it
+    covers, nearest to its centre first, then slot_at's neighbour. A box once covered three
+    items (slots 0-2) with its centre on the wrong one."""
+    left, top, right, bottom = config.INVENTORY_PANEL
+    bl, bt = left + box[0] * (right - left), top + box[1] * (bottom - top)
+    br, bb = left + box[2] * (right - left), top + box[3] * (bottom - top)
+    cx, cy = (bl + br) / 2, (bt + bb) / 2
+    half = config.INVENTORY_SLOT_PITCH / 2
+    covered = []
+    for i in range(config.INVENTORY_SLOTS):
+        x, y = slot_centre(i)
+        if x - half < br and bl < x + half and y - half < bb and bt < y + half:
+            covered.append((abs(x - cx) + abs(y - cy), i))
+    slots = [i for _, i in sorted(covered)]
+    _, neighbour = slot_at(box)
+    if neighbour is not None and neighbour not in slots:
+        slots.append(neighbour)
+    return slots[: config.SLOT_CANDIDATES]
+
+
 class CheckInventoryPolicy:
     def __init__(self, state: GameState, wanted: list[str] | None = None) -> None:
         self.state = state

@@ -12,6 +12,8 @@ from PIL import Image
 from . import actions
 from .actions import Action
 from .brain import Brain
+from .furnace import OBJECTIVES as FURNACE_OBJECTIVES
+from .furnace import StoneFurnacePolicy
 from .inventory import CheckInventoryPolicy
 from .mine import MinePolicy
 from .navigate import WalkPolicy
@@ -36,6 +38,7 @@ BUILDERS: dict[str, Callable[[GameState, str], Any]] = {
     "check_inventory": lambda state, objective: CheckInventoryPolicy(state),
     "place_furnace": lambda state, objective: PlaceFurnacePolicy(state),
     **{objective: _gather for objective in MINE_GOALS},
+    **{objective: StoneFurnacePolicy for objective in FURNACE_OBJECTIVES},
 }
 
 

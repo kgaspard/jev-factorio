@@ -26,7 +26,8 @@ MOUSE_BUTTONS = ("left", "right")
 @dataclass
 class Action:
     """kind: 'keys' (hold `keys` together for `duration` s; 0 = tap),
-    'click' (press `button` at `target` for `duration` s; 0 = click),
+    'click' (press `button` at `target` for `duration` s; 0 = click; `keys`, e.g. ctrl, are
+    held during the click),
     'hover' (move the cursor to `target`), 'press' (move there and keep `button` down until
     a 'release'), 'release', or 'wait'.
     `target` is (x, y) as fractions of the game client area."""
@@ -91,10 +92,16 @@ def execute(action: Action, game: Rect) -> bool:
             pydirectinput.mouseDown(button=action.button)
         elif action.kind == "click":
             try:
+                for k in action.keys:
+                    pydirectinput.keyDown(k)
+                if action.keys:
+                    time.sleep(0.05)  # let the game see the modifier first
                 pydirectinput.mouseDown(button=action.button)
                 time.sleep(action.duration or 0.05)
             finally:
                 pydirectinput.mouseUp(button=action.button)
+                for k in reversed(action.keys):
+                    pydirectinput.keyUp(k)
     elif action.kind == "release":
         pydirectinput.mouseUp(button=action.button)
     else:

@@ -78,6 +78,7 @@ INVENTORY_SLOTS = 80
 INVENTORY_TAP_SECONDS = 0.1  # a 50 ms tap didn't always open it (O33)
 OPEN_MIN = 0.7  # "inventory open" needed to start reading
 INVENTORY_RETRIES = 3  # failed opens/closes before giving up
+SLOT_CANDIDATES = 3  # slots under a box whose tooltips get checked, nearest first
 TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, absent <= 0.03
 
 # ---- Placing the furnace (CP4) ----
@@ -85,3 +86,17 @@ TOOLTIP_SAYS_MIN = 0.8  # tooltip title = wanted item; present items read 1.00, 
 # wins. 3 tiles keeps the 2x2 furnace clear of the character.
 PLACE_SPOTS = [(3, 0), (-3, 0), (0, 3), (3, 3), (-3, 3)]
 PREVIEW_GREEN_MIN = 0.8  # green preview needed to click; red and empty cursors read <= 0.02
+
+# ---- The furnace window (CP5) ----
+FURNACE_WINDOW = (500, 270, 1420, 710)  # where the "Stone furnace" window opens
+FURNACE_SIDE = (965, 320, 1395, 690)  # its right half: status, ore/output slots, fuel slot
+FURNACE_GRID_DY = -4  # its character grid sits 4 px higher than the inventory's (O43)
+WINDOW_OPEN_MIN = 0.8  # open window read 1.00
+WINDOW_CLOSED_MAX = 0.5  # the plain view read 0.26-0.31 (O43), too close to 1 - OPEN_MIN
+# Furnace slot centres. Each is read from its own close-up: on the whole half-window Jev
+# mixed the slots up (fuel 0.53 with 10 coal in it), one slot at a time it reads every count.
+FURNACE_SLOTS = {"input": (997, 537), "output": (1357, 537), "fuel": (997, 597)}
+FURNACE_EMPTY_MAX = 0.2  # P(count 0) at most this = the slot holds something
+STATUS_MIN = 0.8  # furnace status line read; "Working"/"No fuel"/"No ingredients" read 1.00
+SMELT_POLL_SECONDS = 3.0  # between info panel looks while smelting (16 plates take ~51 s)
+SMELT_MAX_POLLS = 40

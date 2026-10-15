@@ -103,7 +103,13 @@ def render(record: dict | None, run_dir: Path, now: float) -> Image.Image:
 
     if record.get("objective") == "plan":
         _plan_section(img, draw, record)
-    elif record.get("objective") == "place_furnace":
+    elif record.get("objective") in (
+        "place_furnace",
+        "fuel_furnace",
+        "load_ore",
+        "wait_for_smelting",
+        "collect_plates",
+    ):
         _generic_section(img, draw, record, run_dir)
     elif record.get("objective") == "check_inventory":
         _inventory_section(img, draw, record, run_dir)
@@ -354,11 +360,17 @@ def _generic_section(img, draw, record: dict, run_dir: Path):
         ("cursor", (450, 290), (PAD + 75, y + 38)),
         ("panel", (230, 290), (PAD + 185, y + 38)),
         ("inventory", (300, 293), (PAD + 140, y + 38)),
+        ("view", (515, 290), (PAD + 42, y + 38)),
+        ("window", (w - 2 * PAD, 287), (PAD, y + 38)),
+        ("side", (330, 284), (PAD + 135, y + 38)),
+        ("output", (285, 285), (PAD + 157, y + 38)),  # verify_moved: the slots go in the bars
     ]:
         if name in shots:
             box = None
             if name == "inventory" and "locate" in jev:
                 box = jev["locate"]["answers"]["box"]["box"]
+            if name == "view" and "find" in jev:
+                box = jev["find"]["answers"]["box"]["box"]
             _paste_image(img, run_dir, shots[name], xy, size, box)
             break
     else:
