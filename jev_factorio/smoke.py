@@ -25,7 +25,7 @@ DIRECTIONS = ["up", "down", "left", "right", "up_left", "up_right", "down_left",
 
 # Two separate requests: one image per request did better than both images in one.
 SCREEN_STATE = [
-    "A screenshot of the video game Factorio (version 2.1, top-down view). The player's "
+    "A screenshot of the video game Factorio (version 2.0, top-down view). The player's "
     "character is at the centre. Iron ore looks like grey-blue rocks on the ground, copper "
     "ore is orange-brown, coal is black and stone is beige.",
     "<screenshot>",
@@ -89,6 +89,7 @@ def main():
     args = parser.parse_args()
 
     shot = Image.open(args.image).convert("RGB") if args.image else grab_factorio(args.countdown)
+    clean = shot.copy()  # the saved annotated copy must never be fed back to Jev
     mini = minimap(shot)
     sent = for_jev(shot)
     print(
@@ -139,9 +140,10 @@ def main():
     out_dir = config.RUNS_DIR / "smoke"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
-    shot.save(out_dir / f"{stamp}.png")
-    mini.save(out_dir / f"{stamp}-minimap.png")
-    print(f"\nSaved {out_dir / stamp}.png and -minimap.png")
+    clean.save(out_dir / f"{stamp}.png")
+    shot.save(out_dir / f"{stamp}-annotated.png")
+    mini.save(out_dir / f"{stamp}-minimap-annotated.png")
+    print(f"\nSaved {out_dir / stamp}.png (clean), -annotated.png and -minimap-annotated.png")
 
 
 if __name__ == "__main__":

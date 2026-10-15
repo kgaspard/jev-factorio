@@ -1,24 +1,45 @@
 """Main loop: screenshot -> policy decides -> execute -> sleep so each tick lasts >= L.
 
-Run:  uv run python -m jev_factorio.loop --policy random --seconds 5
-Click into Factorio within the countdown. Press End (or Ctrl+C in the console) to stop.
+Run:  uv run python -m jev_factorio.loop --policy walk --target iron_ore --seconds 120
+The loop brings Factorio to the front itself and pauses whenever it loses focus.
+Press End (or Ctrl+C in the console) to stop.
+The live panel opens right of the game and the game area is recorded to the run folder.
 """
 
 import argparse
 import random
+import subprocess
+import sys
 import time
+from collections.abc import Callable
+from typing import Protocol
+
+from PIL import Image
 
 from . import actions, config
 from .actions import Action
 from .capture import Screen
+from .navigate import WalkPolicy
+from .recorder import Recorder
 from .runlog import RunLog
+from .targets import TARGETS
 from .window import (
     client_rect,
     factorio_is_active,
     find_factorio,
+    focus,
+    foreground_owner,
     kill_switch_pressed,
     place_client,
 )
+
+
+class Policy(Protocol):
+    done: bool  # set once the policy has reached its goal; the loop then stops
+
+    def decide(self, frame: Image.Image, tick: int) -> tuple[Action, dict]: ...
+
+    def cleanup(self) -> list[Action]: ...
 
 
 class RandomPolicy:
@@ -26,6 +47,7 @@ class RandomPolicy:
 
     def __init__(self):
         self.inventory_open = False
+        self.done = False
 
     def decide(self, frame, tick: int) -> tuple[Action, dict]:
         if random.random() < 0.2:
@@ -38,10 +60,15 @@ class RandomPolicy:
         return [actions.tap("toggle_inventory", "e")] if self.inventory_open else []
 
 
-POLICIES = {"random": RandomPolicy}
+POLICIES: dict[str, Callable[[argparse.Namespace], Policy]] = {
+    "random": lambda args: RandomPolicy(),
+    "walk": lambda args: WalkPolicy(TARGETS[args.target]),
+}
 
 
-def run(policy, seconds: float, tick_seconds: float, countdown: float):
+def run(
+    policy: Policy, tag: str, seconds: float, tick_seconds: float, countdown: float, extras: bool
+):
     hwnd = find_factorio()
     if hwnd is None:
         raise SystemExit("Factorio window not found. Is the game running?")
@@ -55,16 +82,38 @@ def run(policy, seconds: float, tick_seconds: float, countdown: float):
             "Is Factorio in windowed mode?"
         )
 
-    print(f"Click into Factorio. Starting in {countdown:.0f} s...")
+    log = RunLog(tag)
+    print(f"Logging to {log.dir}")
+    panel = recorder = None
+    if extras:
+        panel = subprocess.Popen([sys.executable, "-m", "jev_factorio.live_view", str(log.dir)])
+
+    time.sleep(1)  # let the panel appear first, so it can't take focus after Factorio gets it
+    if not focus(hwnd):
+        print(f"Couldn't bring Factorio to the front ({foreground_owner()}). Click into it.")
+    print(f"Starting in {countdown:.0f} s. Press End to stop.")
     time.sleep(countdown)
 
-    log = RunLog(type(policy).__name__.lower())
+    if extras:
+        recorder = Recorder(game, log.dir)
+        recorder.start()
     screen = Screen()
-    print(f"Logging to {log.dir}")
     start = time.time()
     tick = 0
     try:
-        while time.time() - start < seconds and not kill_switch_pressed():
+        paused_since = None
+        while time.time() - start < seconds and not kill_switch_pressed() and not policy.done:
+            # Without focus, keys would go to another window and screenshots may show it, so
+            # don't ask Jev at all until Factorio is back in front.
+            if not factorio_is_active():
+                if paused_since is None:
+                    paused_since = time.time()
+                    print(f"PAUSED: Factorio lost focus to {foreground_owner()}. Click into it.")
+                time.sleep(0.2)
+                continue
+            if paused_since is not None:
+                print(f"Resumed after {time.time() - paused_since:.1f} s")
+                paused_since = None
             tick_start = time.time()
             game = client_rect(hwnd)  # follow the window if it moves
             frame = screen.grab(game)
@@ -76,11 +125,16 @@ def run(policy, seconds: float, tick_seconds: float, countdown: float):
             executed = actions.execute(action, game)
             t_acted = time.time()
 
+            images = {
+                label: log.save_tick_image(tick, label, img)
+                for label, img in info.pop("_images", {}).items()
+            }
             log.write(
                 {
                     "tick": tick,
                     "t_shot": t_shot,  # what the video renderer syncs on
                     "frame": log.save_tick_frame(tick, frame),
+                    "images": images,
                     "action": action.to_dict(),
                     "executed": executed,
                     "decide_ms": round((t_decided - t_shot) * 1000),
@@ -88,10 +142,11 @@ def run(policy, seconds: float, tick_seconds: float, countdown: float):
                     **info,
                 }
             )
-            status = "ok" if executed else "SKIPPED (Factorio not focused)"
+            status = "ok" if executed else f"SKIPPED (focus: {foreground_owner()})"
+            reason = info.get("decision", {}).get("reason", "")
             print(
                 f"[{tick:03d}] {action.name:<18} {status}  "
-                f"tick={round((time.time() - tick_start) * 1000)}ms"
+                f"tick={round((time.time() - tick_start) * 1000)}ms  {reason}"
             )
 
             tick += 1
@@ -99,23 +154,35 @@ def run(policy, seconds: float, tick_seconds: float, countdown: float):
     except KeyboardInterrupt:
         pass
     finally:
+        cleanup = policy.cleanup()
         if factorio_is_active():
-            for action in policy.cleanup():
+            for action in cleanup:
                 actions.execute(action, game)
         actions.release_all()
         screen.close()
         log.close()
-        print(f"Stopped after {tick} ticks. Run saved to {log.dir}")
+        if recorder:
+            recorder.stop()
+            print(f"Recorded {recorder.frames} frames to {recorder.video_path}")
+        if panel:
+            time.sleep(1)  # let the panel show the last decision before closing it
+            panel.terminate()
+        outcome = "policy finished" if policy.done else "stopped"
+        print(f"{outcome} after {tick} ticks. Run saved to {log.dir}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--policy", choices=POLICIES, default="random")
-    parser.add_argument("--seconds", type=float, default=5)
+    parser.add_argument("--policy", choices=POLICIES, default="walk")
+    parser.add_argument("--target", choices=TARGETS, default="iron_ore", help="for --policy walk")
+    parser.add_argument("--seconds", type=float, default=120)
     parser.add_argument("--tick", type=float, default=config.TICK_SECONDS, help="L in seconds")
     parser.add_argument("--countdown", type=float, default=2)
+    parser.add_argument("--no-extras", action="store_true", help="no live panel, no recording")
     args = parser.parse_args()
-    run(POLICIES[args.policy](), args.seconds, args.tick, args.countdown)
+    tag = f"walk-{args.target}" if args.policy == "walk" else args.policy
+    policy = POLICIES[args.policy](args)
+    run(policy, tag, args.seconds, args.tick, args.countdown, not args.no_extras)
 
 
 if __name__ == "__main__":

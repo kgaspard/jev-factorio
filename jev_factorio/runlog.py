@@ -21,6 +21,12 @@ class RunLog:
         img.save(self.dir / name, quality=90)
         return name
 
+    def save_tick_image(self, tick: int, label: str, img: Image.Image) -> str:
+        """Extra per-tick images (e.g. the minimap Jev saw), lossless so boxes line up."""
+        name = f"ticks/{tick:05d}-{label}.png"
+        img.save(self.dir / name)
+        return name
+
     def write(self, record: dict):
         self._jsonl.write(json.dumps({"t": time.time(), **record}) + "\n")
         self._jsonl.flush()

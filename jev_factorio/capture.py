@@ -32,9 +32,10 @@ def minimap(frame: Image.Image) -> Image.Image:
     size = (config.MINIMAP_JEV_SIZE, config.MINIMAP_JEV_SIZE)
     img = frame.crop(box).resize(size, Image.Resampling.NEAREST)
     draw = ImageDraw.Draw(img)
-    c, arm = img.width / 2, 14
-    draw.line((c - arm, c, c + arm, c), fill=(255, 0, 0), width=3)
-    draw.line((c, c - arm, c, c + arm), fill=(255, 0, 0), width=3)
+    scale = img.width / 448  # the cross was tuned at 448 px; keep its size relative to the map
+    c, arm, width = img.width / 2, 14 * scale, round(3 * scale)
+    draw.line((c - arm, c, c + arm, c), fill=(255, 0, 0), width=width)
+    draw.line((c, c - arm, c, c + arm), fill=(255, 0, 0), width=width)
     return img
 
 
@@ -48,3 +49,20 @@ def for_jev(img: Image.Image) -> Image.Image:
     return img.resize(
         (round(img.width * scale), round(img.height * scale)), Image.Resampling.LANCZOS
     )
+
+
+def closeup(frame: Image.Image) -> tuple[Image.Image, tuple[float, float, float, float]]:
+    """The area around the player (screen centre), upscaled 2x so obstacles are big enough
+    for Jev. Also returns the region as (left, top, right, bottom) fractions of the frame, to
+    map boxes on the close-up back onto the full frame."""
+    w, h = config.CLOSEUP_SIZE
+    cx, cy = frame.width // 2, frame.height // 2
+    box = (cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2)
+    img = frame.crop(box).resize((w * 2, h * 2), Image.Resampling.BICUBIC)
+    region = (
+        box[0] / frame.width,
+        box[1] / frame.height,
+        box[2] / frame.width,
+        box[3] / frame.height,
+    )
+    return img, region

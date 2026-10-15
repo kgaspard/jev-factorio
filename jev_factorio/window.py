@@ -1,6 +1,7 @@
 """Win32 helpers: find the Factorio window, its client area, focus and the kill switch."""
 
 import ctypes
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +102,29 @@ def place_client(hwnd: int, width: int, height: int, left: int = 0, top: int = 0
 
 def factorio_is_active() -> bool:
     return _is_factorio(user32.GetForegroundWindow())
+
+
+def foreground_owner() -> str:
+    """Which window has focus, for logging: 'exe: title'."""
+    hwnd = user32.GetForegroundWindow()
+    title = ctypes.create_unicode_buffer(256)
+    user32.GetWindowTextW(hwnd, title, len(title))
+    # Titles can hold symbols (e.g. a spinner) that a cp1252 console cannot print.
+    safe = title.value.encode("ascii", "replace").decode()
+    return f"{_process_exe(hwnd) or '?'}: {safe}"
+
+
+def focus(hwnd: int) -> bool:
+    """Bring Factorio to the front. Windows only lets the process that has focus hand it over,
+    but a synthetic Alt tap counts as user input and lifts that lock."""
+    VK_MENU, KEYEVENTF_KEYUP, SW_RESTORE = 0x12, 0x0002, 9
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    user32.keybd_event(VK_MENU, 0, 0, 0)
+    user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.2)
+    return factorio_is_active()
 
 
 def kill_switch_pressed() -> bool:
